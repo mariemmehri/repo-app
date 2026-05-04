@@ -1,4 +1,4 @@
-name: CI — Build, Test & Push to ACR
+name: CI - Build, Test and Push to GCP Artifact Registry
 
 on:
   push:
@@ -8,45 +8,46 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
-# ─── Global env ────────────────────────────────────────────────
 env:
   BACKEND_IMAGE: todo-backend
   FRONTEND_IMAGE: todo-frontend
   IMAGE_TAG: ${{ github.sha }}
+  REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}
 
 jobs:
-  # ═══════════════════════════════════════════════════════════════
-  # JOB 1 — Backend : compile + test + upload JAR (build once)
-  # ═══════════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1 - Backend : compile + test + upload JAR
+  # ─────────────────────────────────────────────────────────────
   backend-ci:
-    name: 🔧 Backend — Build & Test
+    name: Backend - Build and Test
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: ☕ Setup Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
 
-      - name: 📦 Cache Maven
+      - name: Cache Maven
         uses: actions/cache@v4
         with:
           path: ~/.m2
           key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
           restore-keys: ${{ runner.os }}-maven-
 
-      - name: 🧪 Build + Tests
+      - name: Build and Test
         run: mvn verify -q
 
-      - name: 📊 Upload test report
+      - name: Upload test report
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -54,171 +55,149 @@ jobs:
           path: backend/target/surefire-reports/
           retention-days: 7
 
-      - name: 📦 Upload JAR artifact
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: backend-jar
           path: backend/target/*.jar
           retention-days: 1
 
-  # ═══════════════════════════════════════════════════════════════
-  # JOB 2 — Frontend : lint + build + upload dist (build once)
-  # ═══════════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2 - Frontend : build + upload dist
+  # ─────────────────────────────────────────────────────────────
   frontend-ci:
-    name: 🎨 Frontend — Lint & Build
+    name: Frontend - Build
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js 20
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: 📦 Cache node_modules
+      - name: Cache node_modules
         uses: actions/cache@v4
         with:
           path: frontend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: ${{ runner.os }}-node-
 
-      - name: 📥 npm install
+      - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: 🏗️ Build Angular
+      - name: Build Angular
         run: npm run build
 
-      - name: 📦 Upload dist artifact
+      - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
           path: frontend/dist/
           retention-days: 1
 
-  # ═══════════════════════════════════════════════════════════════
-  # JOB 3 — Docker Build & Push → ACR  (push uniquement)
-  # ═══════════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────────
+  # JOB 3 - Docker Build and Push to GCP Artifact Registry
+  # ─────────────────────────────────────────────────────────────
   docker-build-push:
-    name: 🐳 Docker Build & Push → ACR
+    name: Docker Build and Push
     runs-on: ubuntu-latest
     needs: [backend-ci, frontend-ci]
     if: github.event_name == 'push'
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 📦 Download JAR
+      - name: Download JAR
         uses: actions/download-artifact@v4
         with:
           name: backend-jar
           path: backend/target/
 
-      - name: 📦 Download dist
+      - name: Download dist
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: frontend/dist/
 
-      # ── Normalize & validate ACR registry ───────────────────────
-      - name: 🧹 Normalize & validate ACR login server
-        id: normalize
-        run: |
-          REGISTRY="${{ secrets.ACR_LOGIN_SERVER }}"
-
-          if [ -z "$REGISTRY" ]; then
-            echo "❌ ERROR: ACR_LOGIN_SERVER secret is NOT SET or EMPTY"
-            echo "   → Go to Settings > Secrets > Actions"
-            echo "   → Add ACR_LOGIN_SERVER = your-registry.azurecr.io"
-            exit 1
-          fi
-
-          REGISTRY="${REGISTRY#https://}"
-          REGISTRY="${REGISTRY#http://}"
-          REGISTRY="${REGISTRY%/}"
-
-          if [ -z "$REGISTRY" ]; then
-            echo "❌ ACR_LOGIN_SERVER is empty after normalization"
-            exit 1
-          fi
-
-          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
-
-      - name: 🔐 Login ACR
-        uses: docker/login-action@v3
+      # ── Authentification GCP via OIDC ─────────────────────────
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
-          registry: ${{ steps.normalize.outputs.registry }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      # ═══════════════════════════════════════════════════════════
-      # Backend
-      # ═══════════════════════════════════════════════════════════
-      - name: 🐳 Build Backend
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # ── Backend ───────────────────────────────────────────────
+      - name: Build Backend image
         run: |
           docker build \
-            -t ${{ steps.normalize.outputs.registry }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
-            -t ${{ steps.normalize.outputs.registry }}/${{ env.BACKEND_IMAGE }}:latest \
+            -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest \
             ./backend
 
-      - name: 🛡️ Scan Backend image
+      - name: Scan Backend image
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ${{ steps.normalize.outputs.registry }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: 1
 
-      - name: 🚀 Push Backend
+      - name: Push Backend image
         run: |
-          docker push ${{ steps.normalize.outputs.registry }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
-          docker push ${{ steps.normalize.outputs.registry }}/${{ env.BACKEND_IMAGE }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
 
-      # ═══════════════════════════════════════════════════════════
-      # Frontend
-      # ═══════════════════════════════════════════════════════════
-      - name: 🐳 Build Frontend
+      # ── Frontend ──────────────────────────────────────────────
+      - name: Build Frontend image
         run: |
           docker build \
-            -t ${{ steps.normalize.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
-            -t ${{ steps.normalize.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:latest \
+            -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest \
             ./frontend
 
-      - name: 🛡️ Scan Frontend image
+      - name: Scan Frontend image
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ${{ steps.normalize.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: 1
 
-      - name: 🚀 Push Frontend
+      - name: Push Frontend image
         run: |
-          docker push ${{ steps.normalize.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
-          docker push ${{ steps.normalize.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
-
-      # ═══════════════════════════════════════════════════════════
-      # GitOps — Update Config Repo (inchangé)
-      # ═══════════════════════════════════════════════════════════
-      - name: 📦 Install yq (version fixe)
+      # ── GitOps - Update repo-config ───────────────────────────
+      - name: Install yq
         run: |
           wget -qO /usr/local/bin/yq \
             https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           chmod +x /usr/local/bin/yq
           yq --version
 
-      - name: 🔄 Update image tags in Config Repo
+      - name: Update image tags in repo-config
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          CONFIG_REPO: mariemmehri/repo-config
+          CONFIG_REPO: ${{ vars.CONFIG_REPO }}
           VALUES_FILE: charts/todo-app/values-staging.yaml
           GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
           GIT_USER_NAME: "github-actions[bot]"
@@ -233,7 +212,7 @@ jobs:
           yq e ".backend.image.tag  = \"${IMAGE_TAG}\"" -i ${VALUES_FILE}
           yq e ".frontend.image.tag = \"${IMAGE_TAG}\"" -i ${VALUES_FILE}
 
-          echo "🔍 Verifying..."
+          echo "Verifying tags..."
           grep "tag:" ${VALUES_FILE}
 
           git config user.email "${GIT_USER_EMAIL}"
@@ -241,7 +220,7 @@ jobs:
           git add ${VALUES_FILE}
 
           if git diff --cached --quiet; then
-            echo "⚠️  No changes — tag already up to date"
+            echo "No changes - tag already up to date"
             exit 0
           fi
 
@@ -252,4 +231,4 @@ jobs:
           Workflow     : ${GITHUB_WORKFLOW}"
 
           git push
-          echo "✅ Done"
+          echo "Done"
