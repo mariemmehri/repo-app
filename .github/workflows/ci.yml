@@ -211,17 +211,21 @@ jobs:
           # ─────────────────────────────────────────────
           # 1. VERIFY IMAGE EXISTS IN REGISTRY (CRITICAL FIX)
           # ─────────────────────────────────────────────
-          echo "Checking image existence in Artifact Registry..."
+          echo "Checking backend image..."
 
-          gcloud artifacts docker images list-tags \
-            $REGISTRY/$BACKEND_IMAGE \
-            --filter="tags:${IMAGE_TAG}" | grep ${IMAGE_TAG}
+          gcloud artifacts docker tags list \
+            europe-west1-docker.pkg.dev/pfe-2026-495220/registry-staging-pfe/todo-backend \
+            --filter="tag:${IMAGE_TAG}" \
+            --format="value(tag)" | grep -q "${IMAGE_TAG}"
 
           echo "Backend image exists ✔"
 
-          gcloud artifacts docker images list-tags \
-            $REGISTRY/$FRONTEND_IMAGE \
-            --filter="tags:${IMAGE_TAG}" | grep ${IMAGE_TAG}
+          echo "Checking frontend image..."
+
+          gcloud artifacts docker tags list \
+            europe-west1-docker.pkg.dev/pfe-2026-495220/registry-staging-pfe/todo-frontend \
+            --filter="tag:${IMAGE_TAG}" \
+            --format="value(tag)" | grep -q "${IMAGE_TAG}"
 
           echo "Frontend image exists ✔"
 
