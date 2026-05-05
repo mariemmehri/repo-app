@@ -201,22 +201,35 @@ jobs:
           VALUES_FILE: charts/todo-app/values-staging.yaml
           GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
           GIT_USER_NAME: "github-actions[bot]"
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          git clone \
+          IMAGE_TAG=${GITHUB_SHA::7}
+          echo "Using IMAGE_TAG=$IMAGE_TAG"
+
+          git clone --depth 1 \
             https://x-access-token:${GH_PAT}@github.com/${CONFIG_REPO}.git \
             config-repo
+
           cd config-repo
 
-          yq e ".backend.image.tag  = \"${IMAGE_TAG}\"" -i ${VALUES_FILE}
-          yq e ".frontend.image.tag = \"${IMAGE_TAG}\"" -i ${VALUES_FILE}
+          # Validate structure (fail fast)
+          yq eval '.backend.image.tag' ${VALUES_FILE} >/dev/null
+          yq eval '.frontend.image.tag' ${VALUES_FILE} >/dev/null
 
-          echo "Verifying tags..."
-          grep "tag:" ${VALUES_FILE}
+          # Atomic update
+          yq eval '
+            .backend.image.tag = strenv(IMAGE_TAG) |
+            .frontend.image.tag = strenv(IMAGE_TAG)
+          ' -i ${VALUES_FILE}
+
+          echo "Updated values:"
+          yq eval '.backend.image.tag, .frontend.image.tag' ${VALUES_FILE}
 
           git config user.email "${GIT_USER_EMAIL}"
-          git config user.name  "${GIT_USER_NAME}"
+          git config user.name "${GIT_USER_NAME}"
+
           git add ${VALUES_FILE}
 
           if git diff --cached --quiet; then
@@ -224,11 +237,8 @@ jobs:
             exit 0
           fi
 
-          git commit -m "ci: update image tags to ${IMAGE_TAG}
+          git commit -m "ci: update image tags to ${IMAGE_TAG} (app ${GITHUB_SHA})"
 
-          Triggered by : ${GITHUB_REPOSITORY}@${GITHUB_SHA}
-          Branch       : ${GITHUB_REF_NAME}
-          Workflow     : ${GITHUB_WORKFLOW}"
+          git push origin HEAD:main
 
-          git push
           echo "Done"
