@@ -15,6 +15,7 @@ env:
   FRONTEND_IMAGE: todo-frontend
   IMAGE_TAG: ${{ github.sha }}
   REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}
+  SHORT_SHA: ${{ github.sha }}
 
 jobs:
   # ─────────────────────────────────────────────────────────────
@@ -146,7 +147,7 @@ jobs:
       - name: Build Backend image
         run: |
           docker build \
-            -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${GITHUB_SHA::7} \
             -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest \
             ./backend
 
@@ -154,21 +155,21 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${GITHUB_SHA::7}
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: 1
 
       - name: Push Backend image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${GITHUB_SHA::7}
           docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
 
       # ── Frontend ──────────────────────────────────────────────
       - name: Build Frontend image
         run: |
           docker build \
-            -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${GITHUB_SHA::7} \
             -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest \
             ./frontend
 
@@ -176,18 +177,18 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${GITHUB_SHA::7}
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: 1
 
       - name: Push Frontend image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${GITHUB_SHA::7}
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
       # ── GitOps - Update repo-config ───────────────────────────
-   # ── GitOps - Update repo-config (SAFE VERSION) ───────────────
+      # ── GitOps - Update repo-config (SAFE VERSION) ───────────────
       - name: Install yq
         run: |
           wget -qO /usr/local/bin/yq \
@@ -195,7 +196,7 @@ jobs:
           chmod +x /usr/local/bin/yq
           yq --version
 
-      - name: Update image tags in repo-config 
+      - name: Update image tags in repo-config
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
