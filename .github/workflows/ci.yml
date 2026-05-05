@@ -187,6 +187,7 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
       # ── GitOps - Update repo-config ───────────────────────────
+   # ── GitOps - Update repo-config (SAFE VERSION) ───────────────
       - name: Install yq
         run: |
           wget -qO /usr/local/bin/yq \
@@ -194,31 +195,48 @@ jobs:
           chmod +x /usr/local/bin/yq
           yq --version
 
-      - name: Update image tags in repo-config
+      - name: Update image tags in repo-config 
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
           VALUES_FILE: charts/todo-app/values-staging.yaml
           GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
           GIT_USER_NAME: "github-actions[bot]"
-          IMAGE_TAG: ${{ github.sha }}
         run: |
           set -euo pipefail
 
           IMAGE_TAG=${GITHUB_SHA::7}
           echo "Using IMAGE_TAG=$IMAGE_TAG"
 
+          # ─────────────────────────────────────────────
+          # 1. VERIFY IMAGE EXISTS IN REGISTRY (CRITICAL FIX)
+          # ─────────────────────────────────────────────
+          echo "Checking image existence in Artifact Registry..."
+
+          gcloud artifacts docker images list-tags \
+            $REGISTRY/$BACKEND_IMAGE \
+            --filter="tags:${IMAGE_TAG}" | grep ${IMAGE_TAG}
+
+          echo "Backend image exists ✔"
+
+          gcloud artifacts docker images list-tags \
+            $REGISTRY/$FRONTEND_IMAGE \
+            --filter="tags:${IMAGE_TAG}" | grep ${IMAGE_TAG}
+
+          echo "Frontend image exists ✔"
+
+          # ─────────────────────────────────────────────
+          # 2. CLONE CONFIG REPO
+          # ─────────────────────────────────────────────
           git clone --depth 1 \
             https://x-access-token:${GH_PAT}@github.com/${CONFIG_REPO}.git \
             config-repo
 
           cd config-repo
 
-          # Validate structure (fail fast)
-          yq eval '.backend.image.tag' ${VALUES_FILE} >/dev/null
-          yq eval '.frontend.image.tag' ${VALUES_FILE} >/dev/null
-
-          # Atomic update
+          # ─────────────────────────────────────────────
+          # 3. UPDATE VALUES FILE
+          # ─────────────────────────────────────────────
           yq eval '
             .backend.image.tag = strenv(IMAGE_TAG) |
             .frontend.image.tag = strenv(IMAGE_TAG)
@@ -227,18 +245,21 @@ jobs:
           echo "Updated values:"
           yq eval '.backend.image.tag, .frontend.image.tag' ${VALUES_FILE}
 
+          # ─────────────────────────────────────────────
+          # 4. COMMIT + PUSH
+          # ─────────────────────────────────────────────
           git config user.email "${GIT_USER_EMAIL}"
           git config user.name "${GIT_USER_NAME}"
 
           git add ${VALUES_FILE}
 
           if git diff --cached --quiet; then
-            echo "No changes - tag already up to date"
+            echo "No changes"
             exit 0
           fi
 
-          git commit -m "ci: update image tags to ${IMAGE_TAG} (app ${GITHUB_SHA})"
+          git commit -m "ci: update image tags to ${IMAGE_TAG}"
 
           git push origin HEAD:main
 
-          echo "Done"
+          echo "GitOps update completed ✔"
