@@ -14,6 +14,9 @@ WORKDIR /app
 # ─── Sécurité : utilisateur non-root ───────────────────────────
 RUN addgroup -S app && adduser -S app -G app
 
+# ─── Patch OS-level vulnerabilities ────────────────────────────
+RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
+
 # ─── Artefact fourni par le CI ─────────────────────────────────
 COPY target/*.jar app.jar
 
@@ -23,9 +26,5 @@ USER app
 
 # ─── Exposition du port applicatif ─────────────────────────────
 EXPOSE 8081
-
-# # ─── Healthcheck (requis par Kubernetes / AKS) ─────────────────
-# HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-#   CMD wget -qO- http://localhost:8081/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
