@@ -23,8 +23,7 @@ RUN chown -R app:app /usr/share/nginx/html
 # ─── Exposition du port HTTP ────────────────────────────────────
 EXPOSE 80
 
-# # ─── Healthcheck (requis par Kubernetes / AKS) ─────────────────
-# HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-#   CMD wget -qO- http://localhost/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD wget -qO- http://localhost/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
