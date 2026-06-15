@@ -152,11 +152,10 @@ jobs:
         run: |
           docker build \
             -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }} \
-            -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest \
             ./backend
 
       - name: Scan Backend image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           scan-type: image
           image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
@@ -167,18 +166,16 @@ jobs:
       - name: Push Backend image
         run: |
           docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
 
       # ── Frontend ──────────────────────────────────────────────
       - name: Build Frontend image
         run: |
           docker build \
             -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }} \
-            -t ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest \
             ./frontend
 
       - name: Scan Frontend image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           scan-type: image
           image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
@@ -189,7 +186,6 @@ jobs:
       - name: Push Frontend image
         run: |
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
 
       # ── GitOps - Update repo-config ───────────────────────────
       - name: Install yq
@@ -219,7 +215,7 @@ jobs:
           echo "Checking backend image.."
 
           gcloud artifacts docker tags list \
-            europe-west1-docker.pkg.dev/pfe-2026-495220/registry-staging-pfe/todo-backend \
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }} \
             --filter="tag:${IMAGE_TAG}" \
             --format="value(tag)" | grep -q "${IMAGE_TAG}"
 
@@ -228,7 +224,7 @@ jobs:
           echo "Checking frontend image..."
 
           gcloud artifacts docker tags list \
-            europe-west1-docker.pkg.dev/pfe-2026-495220/registry-staging-pfe/todo-frontend \
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }} \
             --filter="tag:${IMAGE_TAG}" \
             --format="value(tag)" | grep -q "${IMAGE_TAG}"
 
