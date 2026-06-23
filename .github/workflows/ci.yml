@@ -156,6 +156,11 @@ jobs:
         id: meta
         run: echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.58.1
+
       # ── Backend ───────────────────────────────────────────────
       - name: Build Backend image
         run: |
@@ -164,13 +169,12 @@ jobs:
             ./backend
 
       - name: Scan Backend image
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: |
+          trivy image \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       - name: Push Backend image
         run: |
@@ -184,13 +188,12 @@ jobs:
             ./frontend
 
       - name: Scan Frontend image
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: |
+          trivy image \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       - name: Push Frontend image
         run: |
