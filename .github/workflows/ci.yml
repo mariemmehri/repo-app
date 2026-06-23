@@ -2,9 +2,18 @@ name: CI - Build, Test and Push to GCP Artifact Registry
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'promote-prod-sim — promote current staging tag to prod-sim'
+        required: true
+        default: 'promote-prod-sim'
+        type: choice
+        options:
+          - promote-prod-sim
 
 permissions:
   contents: read
@@ -188,6 +197,15 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       # ── GitOps - Update repo-config ───────────────────────────
+      - name: Determine target environment
+        id: env-target
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "values_file=charts/todo-app/values-staging.yaml" >> "$GITHUB_OUTPUT"
+          else
+            echo "values_file=charts/todo-app/values-dev.yaml" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install yq
         run: |
           wget -qO /usr/local/bin/yq \
@@ -195,14 +213,12 @@ jobs:
           chmod +x /usr/local/bin/yq
           yq --version
 
-      - name: Update image tags in repo-config
+      - name: Open GitOps PR on repo-config
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
-          VALUES_FILE: charts/todo-app/values-staging.yaml
-          GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
-          GIT_USER_NAME: "github-actions[bot]"
-          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }} #src unique
+          VALUES_FILE: ${{ steps.env-target.outputs.values_file }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
 
         run: |
           set -euo pipefail
@@ -210,40 +226,44 @@ jobs:
           echo "Using IMAGE_TAG=$IMAGE_TAG"
 
           # ─────────────────────────────────────────────
-          # 1. VERIFY IMAGE EXISTS IN REGISTRY (CRITICAL FIX)
+          # 1. VERIFY IMAGES EXIST IN REGISTRY
           # ─────────────────────────────────────────────
-          echo "Checking backend image.."
-
           gcloud artifacts docker tags list \
             ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }} \
             --filter="tag:${IMAGE_TAG}" \
             --format="value(tag)" | grep -q "${IMAGE_TAG}"
-
           echo "Backend image exists ✔"
-
-          echo "Checking frontend image..."
 
           gcloud artifacts docker tags list \
             ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }} \
             --filter="tag:${IMAGE_TAG}" \
             --format="value(tag)" | grep -q "${IMAGE_TAG}"
-
           echo "Frontend image exists ✔"
 
           # ─────────────────────────────────────────────
           # 2. CLONE CONFIG REPO
           # ─────────────────────────────────────────────
-          git clone --depth 1 \
-            https://x-access-token:${GH_PAT}@github.com/${CONFIG_REPO}.git \
+          git clone \
+            https://x-access-token:${GH_TOKEN}@github.com/${CONFIG_REPO}.git \
             config-repo
-
           cd config-repo
 
           # ─────────────────────────────────────────────
-          # 3. UPDATE VALUES FILE
+          # 3. REBASE SUR LE MAIN LE PLUS RECENT
+          #    Garantit que la branche part du HEAD courant
+          #    même si une autre PR a mergé entre-temps.
+          # ─────────────────────────────────────────────
+          git fetch origin main
+          git rebase origin/main
+
+          BRANCH="gitops/${IMAGE_TAG}"
+          git checkout -b "$BRANCH"
+
+          # ─────────────────────────────────────────────
+          # 4. PATCH VALUES FILE
           # ─────────────────────────────────────────────
           yq eval '
-            .backend.image.tag = strenv(IMAGE_TAG) |
+            .backend.image.tag  = strenv(IMAGE_TAG) |
             .frontend.image.tag = strenv(IMAGE_TAG)
           ' -i ${VALUES_FILE}
 
@@ -251,20 +271,105 @@ jobs:
           yq eval '.backend.image.tag, .frontend.image.tag' ${VALUES_FILE}
 
           # ─────────────────────────────────────────────
-          # 4. COMMIT + PUSH
+          # 5. COMMIT + PUSH BRANCH
           # ─────────────────────────────────────────────
-          git config user.email "${GIT_USER_EMAIL}"
-          git config user.name "${GIT_USER_NAME}"
-
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
           git add ${VALUES_FILE}
 
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No changes — image tag already up to date."
             exit 0
           fi
 
           git commit -m "ci: update image tags to ${IMAGE_TAG}"
+          git push origin "$BRANCH"
 
-          git push origin HEAD:main
+          # ─────────────────────────────────────────────
+          # 6. OPEN PR + AUTO-MERGE (squash)
+          #    Sans "Require up to date" : GitHub applique
+          #    le diff sur le HEAD courant de main.
+          #    Le rebase (step 3) évite les conflits YAML.
+          # ─────────────────────────────────────────────
+          gh pr create \
+            --repo "$CONFIG_REPO" \
+            --base main \
+            --head "$BRANCH" \
+            --title "ci: deploy ${IMAGE_TAG}" \
+            --body "Automated GitOps update triggered by todo-app@${IMAGE_TAG}."
 
-          echo "GitOps update completed ✔"
+          gh pr merge "$BRANCH" \
+            --repo "$CONFIG_REPO" \
+            --squash \
+            --auto \
+            --delete-branch
+
+          echo "GitOps PR opened and auto-merge enabled ✔"
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 4 - Promote staging → prod-sim (manuel via workflow_dispatch)
+  # ─────────────────────────────────────────────────────────────
+  promote-prod-sim:
+    name: Promote staging tag to prod-sim
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+
+      - name: Promote staging tag to prod-sim
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          CONFIG_REPO: ${{ vars.CONFIG_REPO }}
+        run: |
+          set -euo pipefail
+
+          git clone \
+            https://x-access-token:${GH_TOKEN}@github.com/${CONFIG_REPO}.git \
+            config-repo
+          cd config-repo
+
+          STAGING_TAG=$(yq eval '.backend.image.tag' charts/todo-app/values-staging.yaml)
+          echo "Promoting tag: $STAGING_TAG → prod-sim"
+
+          git fetch origin main
+          git rebase origin/main
+
+          BRANCH="gitops/promote-${STAGING_TAG}-prod-sim"
+          git checkout -b "$BRANCH"
+
+          IMAGE_TAG="$STAGING_TAG" yq eval '
+            .backend.image.tag  = strenv(IMAGE_TAG) |
+            .frontend.image.tag = strenv(IMAGE_TAG)
+          ' -i charts/todo-app/values-prod-sim.yaml
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git add charts/todo-app/values-prod-sim.yaml
+
+          if git diff --cached --quiet; then
+            echo "prod-sim already at $STAGING_TAG — nothing to promote."
+            exit 0
+          fi
+
+          git commit -m "ci: promote ${STAGING_TAG} to prod-sim"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --repo "$CONFIG_REPO" \
+            --base main \
+            --head "$BRANCH" \
+            --title "ci: promote ${STAGING_TAG} to prod-sim" \
+            --body "Manual promotion: staging@${STAGING_TAG} → prod-sim"
+
+          gh pr merge "$BRANCH" \
+            --repo "$CONFIG_REPO" \
+            --squash \
+            --auto \
+            --delete-branch
+
+          echo "Promotion to prod-sim completed ✔"
