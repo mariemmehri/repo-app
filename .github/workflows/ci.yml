@@ -156,6 +156,15 @@ jobs:
         id: meta
         run: echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      - name: Install Trivy
+        run: |
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] \
+            https://aquasecurity.github.io/trivy-repo/deb generic main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq && sudo apt-get install -y trivy
+
       # ── Backend ───────────────────────────────────────────────
       - name: Build Backend image
         run: |
@@ -164,13 +173,12 @@ jobs:
             ./backend
 
       - name: Scan Backend image
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: |
+          trivy image \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       - name: Push Backend image
         run: |
@@ -184,13 +192,12 @@ jobs:
             ./frontend
 
       - name: Scan Frontend image
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: |
+          trivy image \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       - name: Push Frontend image
         run: |
