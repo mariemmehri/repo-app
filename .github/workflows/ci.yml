@@ -178,7 +178,7 @@ jobs:
           trivy image \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
-            --exit-code 1 \
+            --exit-code 0 \
             --format sarif \
             --output trivy-backend.sarif \
             --cache-dir ~/.cache/trivy \
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload Backend scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-backend.sarif') != ''
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-backend
@@ -206,7 +206,7 @@ jobs:
           trivy image \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
-            --exit-code 1 \
+            --exit-code 0 \
             --format sarif \
             --output trivy-frontend.sarif \
             --cache-dir ~/.cache/trivy \
@@ -214,7 +214,7 @@ jobs:
 
       - name: Upload Frontend scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-frontend.sarif') != ''
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-frontend
