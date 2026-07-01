@@ -9,6 +9,9 @@
 
 FROM nginx:alpine
 
+# ─── Patch OS-level vulnerabilities ────────────────────────────
+RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
+
 # ─── Sécurité : utilisateur non-root ───────────────────────────
 RUN addgroup -S app && adduser -S app -G app
 
