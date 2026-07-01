@@ -160,6 +160,12 @@ jobs:
           key: ${{ runner.os }}-trivy-${{ github.run_id }}
           restore-keys: ${{ runner.os }}-trivy-
 
+      # ── Install Trivy (direct — no action dependency) ────────
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
       # ── Backend ───────────────────────────────────────────────
       - name: Build Backend image
         run: |
@@ -168,16 +174,15 @@ jobs:
             ./backend
 
       - name: Scan Backend image
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 1
-          format: sarif
-          output: trivy-backend.sarif
-          cache-dir: ~/.cache/trivy
+        run: |
+          trivy image \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --format sarif \
+            --output trivy-backend.sarif \
+            --cache-dir ~/.cache/trivy \
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       - name: Upload Backend scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -197,16 +202,15 @@ jobs:
             ./frontend
 
       - name: Scan Frontend image
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 1
-          format: sarif
-          output: trivy-frontend.sarif
-          cache-dir: ~/.cache/trivy
+        run: |
+          trivy image \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --format sarif \
+            --output trivy-frontend.sarif \
+            --cache-dir ~/.cache/trivy \
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
       - name: Upload Frontend scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
