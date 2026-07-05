@@ -34,13 +34,13 @@ npm start
 
 ```bash
 npm run build
-# Génère frontend/dist/todo-frontend/browser/
+# Génère frontend/dist/hr-frontend/browser/
 ```
 
 ### Via Docker Compose (application complète)
 
 ```bash
-# depuis la racine de todo-app/
+# depuis la racine de repo-app/
 docker compose up --build
 # Frontend sur http://localhost:80
 ```
@@ -83,14 +83,14 @@ Utilisateur (UI)
 AppComponent ──> HrService
      │ HttpClient.get/post/put('/api/employees | /api/leaves | /api/payslips')
      ▼
-Nginx (proxy /api/ → todo-backend:8081)
+Nginx (proxy /api/ → hr-backend:8081)
      ▼
 Spring Boot REST API
 ```
 
 Le frontend utilise des **URLs relatives** (`/api/...`). Nginx intercepte toutes les requêtes `/api/` et les redirige vers le service backend, de façon identique :
-- En Docker Compose : Nginx résout `todo-backend` via le réseau Docker
-- En Kubernetes : Nginx résout `todo-backend` via le service ClusterIP K8s
+- En Docker Compose : Nginx résout `hr-backend` via le réseau Docker
+- En Kubernetes : Nginx résout `hr-backend` via le service ClusterIP K8s
 
 Aucune variable d'environnement ni configuration CORS n'est nécessaire dans le code Angular.
 
@@ -115,7 +115,7 @@ server {
 
     # Proxy API → backend Spring Boot
     location /api/ {
-        proxy_pass http://todo-backend:8081;
+        proxy_pass http://hr-backend:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -140,7 +140,7 @@ FROM nginx:alpine
 RUN addgroup -S app && adduser -S app -G app
 
 # dist/ compilé et uploadé par GitHub Actions Job 2
-COPY dist/todo-frontend/browser /usr/share/nginx/html
+COPY dist/hr-frontend/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 RUN chown -R app:app /usr/share/nginx/html

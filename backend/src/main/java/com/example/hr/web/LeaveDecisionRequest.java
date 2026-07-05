@@ -1,6 +1,6 @@
-package com.example.todo.hr.web;
+package com.example.hr.web;
 
-import com.example.todo.hr.model.LeaveStatus;
+import com.example.hr.model.LeaveStatus;
 
 /**
  * Corps de requête pour valider/refuser une demande de congé.

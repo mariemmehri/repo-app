@@ -6,24 +6,24 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: todo-backend
+    container_name: hr-backend
     ports:
       - "8081:8081"
     networks:
-      - todo-network
+      - hr-network
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: todo-frontend
+    container_name: hr-frontend
     ports:
       - "80:80"
     depends_on:
       - backend
     networks:
-      - todo-network
+      - hr-network
 
 networks:
-  todo-network:
+  hr-network:
     driver: bridge

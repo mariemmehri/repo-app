@@ -1,4 +1,4 @@
-package com.example.todo.hr.model;
+package com.example.hr.model;
 
 /**
  * Employé fictif de la démo RH (inspiré Sopra HR4YOU).

@@ -1,27 +1,27 @@
 # demo-hr — Mini-portail RH (inspiré Sopra HR4YOU)
 
-Application fullstack conteneurisée servant de **charge de validation** pour la pipeline GitOps CI/CD (PFE — Sopra HR Software). Elle remplace l'ancienne todo-list par des flux métier RH réalistes, **sans modifier le contrat attendu par la pipeline** (mêmes ports, mêmes noms d'images/services, même sonde de santé).
+Application fullstack conteneurisée servant de **charge de validation** pour la pipeline GitOps CI/CD (PFE — Sopra HR Software). C'est un portail RH (SIRH) avec des flux métier réalistes ; le package Java, l'artifactId Maven, les images Docker, les Services/Deployments K8s et la sonde de santé reflètent tous le métier RH (`com.example.hr`, `hr-backend`/`hr-frontend`, `GET /api/health-check`).
 
 Deux flux métier sont simulés :
 
 1. **Demande de congés** — formulaire (type CP/RTT/sans solde, dates, commentaire), calcul automatique des jours ouvrés, workflow de statut (En attente / Validé / Refusé), historique « mes demandes ».
 2. **Consultation de bulletins de paie** — liste par mois/année, détail (brut, net, cotisations, cumuls) avec données factices réalistes, téléchargement PDF simulé.
 
-> ⚠️ Toutes les données sont **fictives** et **en mémoire** (aucune base, aucun volume). Elles sont recréées au démarrage du backend et perdues au redémarrage du pod — comme l'app d'origine, pour ne rien ajouter qui puisse casser le déploiement.
+> ⚠️ Toutes les données sont **fictives** et **en mémoire** (aucune base, aucun volume). Elles sont recréées au démarrage du backend et perdues au redémarrage du pod, pour ne rien ajouter qui puisse casser le déploiement.
 
 ---
 
 ## Contenu
 
 ```
-todo-app/
-├── backend/    # API REST Spring Boot (Java 17) — métier RH dans com.example.todo.hr
+repo-app/
+├── backend/    # API REST Spring Boot (Java 17) — package com.example.hr
 ├── frontend/   # SPA Angular 17 (Nginx) — portail RH
 ├── docker-compose.yml         # Dev local
-└── .github/workflows/ci.yml   # Pipeline CI/CD (inchangée)
+└── .github/workflows/ci.yml   # Pipeline CI/CD
 ```
 
-Le package Java reste `com.example.todo` et l'artifactId Maven `todo-backend` : le nom du JAR (donc le `COPY target/*.jar` du Dockerfile) et les noms d'images/services restent identiques. Le métier RH vit dans le sous-package `com.example.todo.hr`.
+Le package Java est `com.example.hr` (artifactId Maven `hr-backend`), les images Docker et les Services/Deployments K8s sont `hr-backend` / `hr-frontend` (voir `ci.yml` et le chart Helm `charts/hr-app`).
 
 ---
 
@@ -30,7 +30,7 @@ Le package Java reste `com.example.todo` et l'artifactId Maven `todo-backend` : 
 ### Avec Docker Compose (recommandé)
 
 ```bash
-cd todo-app
+cd repo-app
 docker compose up --build
 ```
 
@@ -39,7 +39,7 @@ docker compose up --build
 | Frontend (portail RH) | http://localhost:80 |
 | Backend API (santé)   | http://localhost:8081/api/health |
 
-Nginx proxifie `/api/*` vers `todo-backend:8081` — le frontend appelle des chemins relatifs, aucun CORS à gérer.
+Nginx proxifie `/api/*` vers `hr-backend:8081` en local (nom du service docker-compose) — le frontend appelle des chemins relatifs, aucun CORS à gérer.
 
 ### Sans Docker
 
@@ -59,7 +59,7 @@ cd frontend && npm install --legacy-peer-deps && npm start   # port 4200 (ng ser
 
 | Méthode | URL | Rôle |
 |---------|-----|------|
-| GET | `/api/todos` | **Route historique** interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
+| GET | `/api/health-check` | Route interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
 | GET | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
 
 ### Employés
@@ -114,7 +114,7 @@ curl -OJ http://localhost:8081/api/payslips/1/download   # -> bulletin_SHR-0001_
 - **Historique de congés** varié : demandes validées, refusées, en attente (répartis sur les 5 employés).
 - **3 bulletins par employé** (Mars, Avril, Mai 2026) avec brut/net/cotisations et cumuls annuels.
 
-Toutes ces données sont générées au démarrage par [`HrDataStore`](backend/src/main/java/com/example/todo/hr/service/HrDataStore.java).
+Toutes ces données sont générées au démarrage par [`HrDataStore`](backend/src/main/java/com/example/hr/service/HrDataStore.java).
 
 ---
 
@@ -145,25 +145,26 @@ docker compose logs -f backend
 Sur le cluster :
 
 ```bash
-kubectl logs -n staging deploy/todo-backend -f
+kubectl logs -n staging deploy/hr-backend -f
 ```
 
 ---
 
-## Contrat pipeline préservé (pourquoi ça ne casse rien)
+## Renommage RH (coordonné entre `repo-app` et `repo-config`)
 
-| Élément | Valeur (inchangée) |
-|---------|--------------------|
+| Élément | Valeur |
+|---------|--------|
 | Artefact backend | `backend/target/*.jar` (`mvn verify -q` OK, aucun test → pas d'échec) |
-| Artefact frontend | `frontend/dist/todo-frontend/browser` |
+| Artefact frontend | `frontend/dist/hr-frontend/browser` |
 | Port backend | `8081` |
 | Port frontend | `80` |
-| Nom images | `todo-backend`, `todo-frontend` |
-| Nom services K8s | `todo-backend`, `todo-frontend` |
-| Sonde readiness/liveness | `GET /api/todos` (conservée, renvoie 200) |
-| Proxy Nginx | `/api/` → `http://todo-backend:8081` |
+| Package Java / artifactId Maven | `com.example.hr` / `hr-backend` |
+| Nom images | `hr-backend`, `hr-frontend` |
+| Nom services/deployments K8s | `hr-backend`, `hr-frontend` |
+| Sonde readiness/liveness | `GET /api/health-check` (renvoie 200) |
+| Proxy Nginx (docker-compose + K8s) | `/api/` → `http://hr-backend:8081` |
 
-Aucun changement dans `ci.yml`, `docker-compose.yml`, `nginx.conf`, les Dockerfiles ni le chart Helm n'est nécessaire.
+Le renommage a été appliqué de façon coordonnée dans `ci.yml` + `pom.xml` + le code Java (`repo-app`), et le chart Helm `charts/hr-app` (`repo-config`) : `docker-compose.yml`, `nginx.conf` et les Dockerfiles ont été mis à jour en conséquence.
 
 ---
 

@@ -1,4 +1,4 @@
-package com.example.todo.hr.model;
+package com.example.hr.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 

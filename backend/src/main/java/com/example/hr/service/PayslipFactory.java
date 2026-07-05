@@ -1,7 +1,7 @@
-package com.example.todo.hr.service;
+package com.example.hr.service;
 
-import com.example.todo.hr.model.Payslip;
-import com.example.todo.hr.model.PayslipLine;
+import com.example.hr.model.Payslip;
+import com.example.hr.model.PayslipLine;
 
 import java.text.NumberFormat;
 import java.util.Locale;

@@ -1,7 +1,7 @@
-package com.example.todo.hr.web;
+package com.example.hr.web;
 
-import com.example.todo.hr.model.LeaveRequest;
-import com.example.todo.hr.service.LeaveService;
+import com.example.hr.model.LeaveRequest;
+import com.example.hr.service.LeaveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;

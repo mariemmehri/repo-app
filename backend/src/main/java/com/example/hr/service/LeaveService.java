@@ -1,7 +1,7 @@
-package com.example.todo.hr.service;
+package com.example.hr.service;
 
-import com.example.todo.hr.model.LeaveRequest;
-import com.example.todo.hr.model.LeaveStatus;
+import com.example.hr.model.LeaveRequest;
+import com.example.hr.model.LeaveStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;

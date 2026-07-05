@@ -1,4 +1,4 @@
-package com.example.todo.hr.model;
+package com.example.hr.model;
 
 /**
  * Ligne de bulletin de paie (cotisation, retenue ou gain).

@@ -1,10 +1,10 @@
-package com.example.todo.hr.service;
+package com.example.hr.service;
 
-import com.example.todo.hr.model.Employee;
-import com.example.todo.hr.model.LeaveRequest;
-import com.example.todo.hr.model.LeaveStatus;
-import com.example.todo.hr.model.LeaveType;
-import com.example.todo.hr.model.Payslip;
+import com.example.hr.model.Employee;
+import com.example.hr.model.LeaveRequest;
+import com.example.hr.model.LeaveStatus;
+import com.example.hr.model.LeaveType;
+import com.example.hr.model.Payslip;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +20,9 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Dépôt de données EN MÉMOIRE (aucune base, aucun volume persistant).
- * Même philosophie que l'app todo d'origine : les données sont recréées
- * au démarrage du pod et perdues au redémarrage — parfait pour valider un
- * déploiement sans introduire de dépendance externe qui casserait la pipeline.
+ * Les données sont recréées au démarrage du pod et perdues au redémarrage —
+ * parfait pour valider un déploiement sans introduire de dépendance externe
+ * qui casserait la pipeline.
  *
  * Jeu de démonstration :
  *   - 5 employés fictifs

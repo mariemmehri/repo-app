@@ -13,7 +13,7 @@ FROM nginx:alpine
 RUN addgroup -S app && adduser -S app -G app
 
 # ─── Artefact fourni par le CI ─────────────────────────────────
-COPY dist/todo-frontend/browser /usr/share/nginx/html
+COPY dist/hr-frontend/browser /usr/share/nginx/html
 
 # ─── Config Nginx personnalisée (fallback SPA Angular) ─────────
 COPY nginx.conf /etc/nginx/conf.d/default.conf

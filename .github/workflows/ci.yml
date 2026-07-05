@@ -11,8 +11,8 @@ permissions:
   id-token: write
 
 env:
-  BACKEND_IMAGE: todo-backend
-  FRONTEND_IMAGE: todo-frontend
+  BACKEND_IMAGE: hr-backend
+  FRONTEND_IMAGE: hr-frontend
 
 jobs:
   # ─────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
-          VALUES_FILE: charts/todo-app/values-staging.yaml
+          VALUES_FILE: charts/hr-app/values-staging.yaml
           GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
           GIT_USER_NAME: "github-actions[bot]"
           IMAGE_TAG: ${{ steps.meta.outputs.image_tag }} #src unique

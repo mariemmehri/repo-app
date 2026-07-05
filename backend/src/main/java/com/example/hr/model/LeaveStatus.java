@@ -1,4 +1,4 @@
-package com.example.todo.hr.model;
+package com.example.hr.model;
 
 /**
  * Statut d'une demande de congé dans le workflow de validation.

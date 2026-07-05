@@ -1,7 +1,7 @@
-package com.example.todo.hr.web;
+package com.example.hr.web;
 
-import com.example.todo.hr.model.Employee;
-import com.example.todo.hr.service.HrDataStore;
+import com.example.hr.model.Employee;
+import com.example.hr.service.HrDataStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;

@@ -3,7 +3,7 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
-    "todo-frontend": {
+    "hr-frontend": {
       "projectType": "application",
       "root": "",
       "sourceRoot": "src",
@@ -12,7 +12,7 @@
         "build": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
-            "outputPath": "dist/todo-frontend",
+            "outputPath": "dist/hr-frontend",
             "index": "src/index.html",
             "browser": "src/main.ts",
             "polyfills": ["zone.js"],
@@ -40,8 +40,8 @@
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "configurations": {
-            "production": { "buildTarget": "todo-frontend:build:production" },
-            "development": { "buildTarget": "todo-frontend:build:development" }
+            "production": { "buildTarget": "hr-frontend:build:production" },
+            "development": { "buildTarget": "hr-frontend:build:development" }
           },
           "defaultConfiguration": "development"
         }

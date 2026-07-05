@@ -10,12 +10,12 @@ API REST du mini-portail RH (inspiré Sopra HR4YOU), développée avec Spring Bo
 |-----------|---------|
 | Java | 17 (Temurin) |
 | Spring Boot | 3.2.0 |
-| Build | Maven (`com.example:todo-backend`) |
+| Build | Maven (`com.example:hr-backend`) |
 | Port | 8081 |
 | Stockage | In-memory (aucune base, aucun volume) |
 | Image de base | `eclipse-temurin:17-jre-alpine` |
 
-> Le package Java reste `com.example.todo` et l'artifactId Maven `todo-backend` : le nom du JAR (donc le `COPY target/*.jar` du Dockerfile) et le nom d'image restent inchangés pour ne pas casser la pipeline. Le métier RH vit dans le sous-package `com.example.todo.hr`.
+> Le package Java est `com.example.hr`, l'artifactId Maven `hr-backend` et l'image Docker `hr-backend`. Le métier RH vit dans les sous-packages `com.example.hr.model` / `.service` / `.web`.
 
 ---
 
@@ -42,16 +42,16 @@ mvn spring-boot:run
 mvn package -DskipTests
 
 # Construire l'image
-docker build -t todo-backend:local .
+docker build -t hr-backend:local .
 
 # Lancer le container
-docker run -p 8081:8081 todo-backend:local
+docker run -p 8081:8081 hr-backend:local
 ```
 
 ### Via Docker Compose (recommandé)
 
 ```bash
-# depuis la racine de todo-app/
+# depuis la racine de repo-app/
 docker compose up --build
 ```
 
@@ -63,7 +63,7 @@ docker compose up --build
 
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
-| `GET` | `/api/todos` | **Route historique** utilisée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
+| `GET` | `/api/health-check` | Route interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
 | `GET` | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
 
 ### Employés
@@ -116,24 +116,23 @@ curl -OJ http://localhost:8081/api/payslips/1/download
 ## Structure du code
 
 ```
-src/main/java/com/example/todo/
-├── TodoApplication.java        # Point d'entrée @SpringBootApplication + log de démarrage
-├── TodoController.java         # Endpoints santé : /api/todos (sonde K8s) + /api/health
-└── hr/                         # ── Métier RH ──
-    ├── model/
-    │   ├── Employee.java
-    │   ├── LeaveRequest.java   # + LeaveType (CP/RTT/SANS_SOLDE), LeaveStatus (EN_ATTENTE/VALIDE/REFUSE)
-    │   ├── Payslip.java        # + PayslipLine (lignes de cotisations)
-    │   └── ...
-    ├── service/
-    │   ├── HrDataStore.java            # Dépôt in-memory + seed des données de démo
-    │   ├── WorkingDaysCalculator.java  # Calcul jours ouvrés (hors WE + fériés FR fixes)
-    │   ├── LeaveService.java           # Logique congés (soumission + décision)
-    │   └── PayslipFactory.java         # Génération de bulletins réalistes
-    └── web/
-        ├── EmployeeController.java
-        ├── LeaveController.java
-        └── PayslipController.java      # inclut la génération du PDF simulé
+src/main/java/com/example/hr/
+├── HrApplication.java          # Point d'entrée @SpringBootApplication + log de démarrage
+├── HealthController.java       # Endpoints santé : /api/health-check (sonde K8s) + /api/health
+├── model/
+│   ├── Employee.java
+│   ├── LeaveRequest.java   # + LeaveType (CP/RTT/SANS_SOLDE), LeaveStatus (EN_ATTENTE/VALIDE/REFUSE)
+│   ├── Payslip.java        # + PayslipLine (lignes de cotisations)
+│   └── ...
+├── service/
+│   ├── HrDataStore.java            # Dépôt in-memory + seed des données de démo
+│   ├── WorkingDaysCalculator.java  # Calcul jours ouvrés (hors WE + fériés FR fixes)
+│   ├── LeaveService.java           # Logique congés (soumission + décision)
+│   └── PayslipFactory.java         # Génération de bulletins réalistes
+└── web/
+    ├── EmployeeController.java
+    ├── LeaveController.java
+    └── PayslipController.java      # inclut la génération du PDF simulé
 
 src/main/resources/
 └── application.properties      # server.port=8081

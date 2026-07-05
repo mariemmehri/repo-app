@@ -1,4 +1,4 @@
-package com.example.todo.hr.model;
+package com.example.hr.model;
 
 /**
  * Type de congé demandé.
