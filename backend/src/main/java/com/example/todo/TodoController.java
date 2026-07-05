@@ -1,49 +1,44 @@
 package com.example.todo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Endpoint de santé conservé à l'adresse historique /api/todos.
+ *
+ * Les sondes Kubernetes (readiness + liveness) du chart Helm
+ * (charts/todo-app/templates/deployment-backend.yaml) interrogent /api/todos.
+ * Pour NE PAS casser la pipeline / le déploiement, on garde cette route
+ * vivante — elle répond simplement 200 avec une liste vide.
+ *
+ * Le vrai métier RH est servi par les contrôleurs du package com.example.todo.hr.web
+ * (/api/employees, /api/leaves, /api/payslips).
+ */
 @RestController
-@RequestMapping("/api/todos")
+@RequestMapping("/api")
 @CrossOrigin(origins = "*")
 public class TodoController {
 
-    private final List<Todo> todos = new ArrayList<>();
-    private final AtomicLong counter = new AtomicLong();
+    private static final Logger log = LoggerFactory.getLogger(TodoController.class);
 
-    public TodoController() {
-        todos.add(new Todo(counter.incrementAndGet(), "Apprendre Docker", false));
-        todos.add(new Todo(counter.incrementAndGet(), "Conteneuriser l'app", false));
-        todos.add(new Todo(counter.incrementAndGet(), "Déployer sur Kubernetes", false));
+    /** Route historique interrogée par les sondes K8s — doit rester en 200. */
+    @GetMapping("/todos")
+    public List<Object> healthTodos() {
+        log.debug("[HEALTH] GET /api/todos (sonde K8s) -> 200 []");
+        return List.of();
     }
 
-    @GetMapping
-    public List<Todo> getAll() {
-        return todos;
-    }
-
-    @PostMapping
-    public Todo create(@RequestBody Todo todo) {
-        todo.setId(counter.incrementAndGet());
-        todos.add(todo);
-        return todo;
-    }
-
-    @PutMapping("/{id}")
-    public Todo update(@PathVariable Long id, @RequestBody Todo updated) {
-        for (Todo todo : todos) {
-            if (todo.getId().equals(id)) {
-                todo.setCompleted(updated.isCompleted());
-                return todo;
-            }
-        }
-        return null;
-    }
-
-    @DeleteMapping("/{id}")
-    public void delete(@PathVariable Long id) {
-        todos.removeIf(todo -> todo.getId().equals(id));
+    /** Endpoint de santé explicite. */
+    @GetMapping("/health")
+    public Map<String, String> health() {
+        return Map.of(
+                "status", "UP",
+                "app", "demo-hr",
+                "message", "Backend RH opérationnel"
+        );
     }
 }

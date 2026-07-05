@@ -1,6 +1,6 @@
-# Backend — API REST Spring Boot
+# Backend — API REST Spring Boot (demo-hr)
 
-API REST CRUD pour la gestion de tâches Todo, développée avec Spring Boot 3.2 et Java 17.
+API REST du mini-portail RH (inspiré Sopra HR4YOU), développée avec Spring Boot 3.2 et Java 17. Elle expose deux flux métier — **demandes de congés** et **bulletins de paie** — sur des données factices en mémoire.
 
 ---
 
@@ -10,10 +10,12 @@ API REST CRUD pour la gestion de tâches Todo, développée avec Spring Boot 3.2
 |-----------|---------|
 | Java | 17 (Temurin) |
 | Spring Boot | 3.2.0 |
-| Build | Maven |
+| Build | Maven (`com.example:todo-backend`) |
 | Port | 8081 |
-| Stockage | In-memory (`ArrayList`) |
+| Stockage | In-memory (aucune base, aucun volume) |
 | Image de base | `eclipse-temurin:17-jre-alpine` |
+
+> Le package Java reste `com.example.todo` et l'artifactId Maven `todo-backend` : le nom du JAR (donc le `COPY target/*.jar` du Dockerfile) et le nom d'image restent inchangés pour ne pas casser la pipeline. Le métier RH vit dans le sous-package `com.example.todo.hr`.
 
 ---
 
@@ -24,13 +26,13 @@ API REST CRUD pour la gestion de tâches Todo, développée avec Spring Boot 3.2
 ```bash
 cd backend
 
-# Compiler et lancer les tests
+# Compiler et lancer les tests (exactement ce que fait le CI)
 mvn verify
 
 # Démarrer le serveur
 mvn spring-boot:run
 
-# API disponible sur http://localhost:8081/api/todos
+# Santé disponible sur http://localhost:8081/api/health
 ```
 
 ### Avec Docker uniquement
@@ -57,33 +59,56 @@ docker compose up --build
 
 ## Endpoints API
 
-Base URL : `http://localhost:8081/api/todos`
+### Santé (interrogés par les sondes Kubernetes — NE PAS supprimer)
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| `GET` | `/api/todos` | **Route historique** utilisée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
+| `GET` | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
+
+### Employés
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| `GET` | `/api/employees` | Annuaire (5 employés fictifs) |
+| `GET` | `/api/employees/{id}` | Fiche d'un employé |
+
+### Congés
 
 | Méthode | Chemin | Description | Corps |
 |---------|--------|-------------|-------|
-| `GET` | `/api/todos` | Lister toutes les tâches | — |
-| `POST` | `/api/todos` | Créer une tâche | `{"title": "...", "completed": false}` |
-| `PUT` | `/api/todos/{id}` | Modifier une tâche | `{"completed": true}` |
-| `DELETE` | `/api/todos/{id}` | Supprimer une tâche | — |
+| `GET` | `/api/leaves?employeeId=1` | Historique « mes demandes » | — |
+| `POST` | `/api/leaves` | Soumettre une demande (jours ouvrés calculés serveur) | `{"employeeId":1,"type":"CP","startDate":"2026-09-07","endDate":"2026-09-11","comment":"..."}` |
+| `PUT` | `/api/leaves/{id}/decision` | Décision manager | `{"decision":"VALIDE","decisionComment":"..."}` |
+
+`type` ∈ `CP`, `RTT`, `SANS_SOLDE` — `decision` ∈ `VALIDE`, `REFUSE`.
+
+### Bulletins de paie
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| `GET` | `/api/payslips?employeeId=1` | Liste des bulletins (3 par employé) |
+| `GET` | `/api/payslips/{id}` | Détail (lignes de cotisations, cumuls) |
+| `GET` | `/api/payslips/{id}/download` | Téléchargement PDF simulé (`application/pdf`) |
 
 ### Exemples cURL
 
 ```bash
-# Lister
-curl http://localhost:8081/api/todos
+# Santé
+curl http://localhost:8081/api/health
 
-# Créer
-curl -X POST http://localhost:8081/api/todos \
+# Soumettre une demande de congé (jours ouvrés calculés automatiquement)
+curl -X POST http://localhost:8081/api/leaves \
   -H "Content-Type: application/json" \
-  -d '{"title": "Apprendre Kubernetes", "completed": false}'
+  -d '{"employeeId":1,"type":"CP","startDate":"2026-09-07","endDate":"2026-09-11","comment":"Test"}'
 
-# Compléter la tâche id=1
-curl -X PUT http://localhost:8081/api/todos/1 \
+# Valider la demande id=1
+curl -X PUT http://localhost:8081/api/leaves/1/decision \
   -H "Content-Type: application/json" \
-  -d '{"completed": true}'
+  -d '{"decision":"VALIDE","decisionComment":"OK manager"}'
 
-# Supprimer
-curl -X DELETE http://localhost:8081/api/todos/1
+# Télécharger un bulletin en PDF
+curl -OJ http://localhost:8081/api/payslips/1/download
 ```
 
 ---
@@ -92,24 +117,55 @@ curl -X DELETE http://localhost:8081/api/todos/1
 
 ```
 src/main/java/com/example/todo/
-├── TodoApplication.java    # Point d'entrée @SpringBootApplication
-├── Todo.java               # Modèle de données POJO (id, title, completed)
-└── TodoController.java     # REST controller CRUD complet
+├── TodoApplication.java        # Point d'entrée @SpringBootApplication + log de démarrage
+├── TodoController.java         # Endpoints santé : /api/todos (sonde K8s) + /api/health
+└── hr/                         # ── Métier RH ──
+    ├── model/
+    │   ├── Employee.java
+    │   ├── LeaveRequest.java   # + LeaveType (CP/RTT/SANS_SOLDE), LeaveStatus (EN_ATTENTE/VALIDE/REFUSE)
+    │   ├── Payslip.java        # + PayslipLine (lignes de cotisations)
+    │   └── ...
+    ├── service/
+    │   ├── HrDataStore.java            # Dépôt in-memory + seed des données de démo
+    │   ├── WorkingDaysCalculator.java  # Calcul jours ouvrés (hors WE + fériés FR fixes)
+    │   ├── LeaveService.java           # Logique congés (soumission + décision)
+    │   └── PayslipFactory.java         # Génération de bulletins réalistes
+    └── web/
+        ├── EmployeeController.java
+        ├── LeaveController.java
+        └── PayslipController.java      # inclut la génération du PDF simulé
 
 src/main/resources/
-└── application.properties  # server.port=8081
+└── application.properties      # server.port=8081
 ```
 
-### `Todo.java`
+### Données de démonstration
 
-POJO simple avec trois champs : `Long id`, `String title`, `boolean completed`. Getters/setters manuels (pas de Lombok pour minimiser les dépendances).
+Générées au démarrage par `HrDataStore` (voir logs `[SEED]`) :
+- **5 employés** (`SHR-0001` → `SHR-0005`) dans différents départements, avec soldes CP/RTT
+- **10 demandes de congé** variées (validées / refusées / en attente)
+- **15 bulletins** (3 par employé : Mars, Avril, Mai 2026)
 
-### `TodoController.java`
+Les données sont **perdues au redémarrage** du pod — c'est volontaire : aucune dépendance externe (DB, volume) n'est introduite, pour ne rien ajouter qui puisse fragiliser le déploiement.
 
-- Stockage en mémoire : `List<Todo> todos = new ArrayList<>()`
-- Compteur auto-incrémenté thread-safe : `AtomicLong counter`
-- Préchargé avec 3 tâches au démarrage pour faciliter la démonstration
-- `@CrossOrigin(origins = "*")` — CORS ouvert pour le développement local
+### Génération du PDF
+
+Le téléchargement (`/api/payslips/{id}/download`) construit à la main un PDF 1.4 minimal (texte) — pas de dépendance iText/PDFBox, ce qui garde la surface d'attaque scannée par Trivy identique à l'origine (une seule dépendance applicative).
+
+---
+
+## Logs de validation
+
+Le backend émet des logs préfixés pour suivre chaque étape :
+
+| Préfixe | Émis lors de |
+|---------|--------------|
+| `[SEED]` / `[SEED][EMP/LEAVE/PAY]` | Chargement du jeu de données au démarrage |
+| `[API]` | Chaque appel REST reçu |
+| `[LEAVE][CALC]` | Calcul des jours ouvrés |
+| `[LEAVE][SUBMIT]` / `[LEAVE][DECISION]` / `[LEAVE][HISTORY]` | Cycle de vie d'une demande |
+
+Un encadré `Demo RH … backend PRÊT` récapitule tous les endpoints au démarrage.
 
 ---
 
@@ -134,18 +190,18 @@ EXPOSE 8081
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
-Le Dockerfile ne compile pas le code. Le CI (GitHub Actions Job 1) compile et teste d'abord, puis télécharge le JAR avant le `docker build`. Cela garantit que l'image contient exactement le binaire validé par les tests.
+Le Dockerfile ne compile pas le code. Le CI (GitHub Actions Job 1) compile et teste d'abord, puis télécharge le JAR avant le `docker build` — l'image contient exactement le binaire validé.
 
 ---
 
 ## Tests
 
 ```bash
-mvn test           # uniquement les tests unitaires
-mvn verify         # compile + tests + vérifications complètes
+mvn test     # tests unitaires
+mvn verify   # compile + tests + package (ce que lance le CI : mvn verify -q)
 ```
 
-Les rapports XML sont dans `target/surefire-reports/` et uploadés en tant qu'artefact GitHub Actions (rétention 7 jours).
+Il n'y a pas de test unitaire pour le moment : `mvn verify` se limite donc à compiler et packager le JAR (aucun échec possible côté tests). Les rapports éventuels seraient dans `target/surefire-reports/`.
 
 ---
 
@@ -164,8 +220,9 @@ Une seule dépendance applicative :
 
 ---
 
-## Limitations connues
+## Limitations connues (assumées pour la démo)
 
-- **Pas de persistance** : les données sont perdues au redémarrage du pod. Une vraie implémentation utiliserait Spring Data JPA + PostgreSQL.
-- **Pas de Spring Boot Actuator** : les endpoints `/actuator/health` n'existent pas — les liveness/readiness probes Kubernetes ne peuvent pas être configurées correctement sans ce module.
-- **CORS ouvert** : `@CrossOrigin(origins = "*")` est acceptable en développement, pas en production (restreindre à l'origine du frontend).
+- **Pas de persistance** : données en mémoire, perdues au redémarrage du pod. Une vraie implémentation utiliserait Spring Data JPA + PostgreSQL.
+- **PDF simulé** : document texte minimal, pas un vrai bulletin mis en page.
+- **Jours fériés** : seuls les fériés français à date fixe sont exclus (pas les fériés mobiles type Pâques/Ascension).
+- **CORS ouvert** : `@CrossOrigin(origins = "*")` acceptable en démo ; en production Nginx proxifie `/api/*` donc les appels sont same-origin.

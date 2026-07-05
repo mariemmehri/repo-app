@@ -1,0 +1,162 @@
+<header class="app-header">
+  <span class="logo">SoproRH<span class="dot">.</span></span>
+  <span class="spacer"></span>
+  <label style="color:#fff;margin:0 8px 0 0;">Employé&nbsp;:</label>
+  <select [ngModel]="selected?.id" (ngModelChange)="selectEmployee($event)">
+    <option *ngFor="let e of employees" [value]="e.id">
+      {{ e.fullName }} — {{ e.matricule }}
+    </option>
+  </select>
+</header>
+
+<div class="layout">
+  <nav class="sidebar">
+    <button [class.active]="view === 'leaves'" (click)="setView('leaves')">🌴 Mes congés</button>
+    <button [class.active]="view === 'payslips'" (click)="setView('payslips')">💶 Mes bulletins</button>
+  </nav>
+
+  <main class="content">
+
+    <!-- Bandeau employé -->
+    <div class="emp-banner" *ngIf="selected">
+      <div class="avatar">{{ initials(selected) }}</div>
+      <div class="meta">
+        <strong>{{ selected.fullName }}</strong><br>
+        <small>{{ selected.jobTitle }} · {{ selected.department }}</small>
+      </div>
+      <div class="balances">
+        <div class="pill">Solde CP<strong>{{ selected.leaveBalanceCp }}</strong>jours</div>
+        <div class="pill">Solde RTT<strong>{{ selected.leaveBalanceRtt }}</strong>jours</div>
+      </div>
+    </div>
+
+    <!-- ══════════ VUE CONGÉS ══════════ -->
+    <ng-container *ngIf="view === 'leaves'">
+
+      <div class="card">
+        <h2>Nouvelle demande de congé</h2>
+        <p class="hint">Le nombre de jours ouvrés est calculé automatiquement (week-ends et jours fériés exclus).</p>
+
+        <div class="row">
+          <div>
+            <label>Type de congé</label>
+            <select [(ngModel)]="form.type">
+              <option value="CP">Congés payés (CP)</option>
+              <option value="RTT">RTT</option>
+              <option value="SANS_SOLDE">Sans solde</option>
+            </select>
+          </div>
+          <div>
+            <label>Date de début</label>
+            <input type="date" [(ngModel)]="form.startDate">
+          </div>
+          <div>
+            <label>Date de fin</label>
+            <input type="date" [(ngModel)]="form.endDate">
+          </div>
+        </div>
+
+        <label>Commentaire</label>
+        <textarea [(ngModel)]="form.comment" placeholder="Motif, précisions…"></textarea>
+
+        <div class="computed" *ngIf="estimatedDays !== null">
+          📅 Estimation : <strong>{{ estimatedDays }}</strong> jour(s) ouvré(s) demandé(s)
+        </div>
+
+        <button class="btn" (click)="submitLeave()">Soumettre la demande</button>
+      </div>
+
+      <div class="card">
+        <h2>Historique de mes demandes</h2>
+        <p class="hint">Vue « mes demandes » — {{ leaves.length }} demande(s).</p>
+
+        <table *ngIf="leaves.length; else noLeaves">
+          <thead>
+            <tr>
+              <th>Type</th><th>Du</th><th>Au</th><th>Jours</th><th>Commentaire</th><th>Statut</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let l of leaves">
+              <td>{{ typeLabel(l.type) }}</td>
+              <td>{{ l.startDate }}</td>
+              <td>{{ l.endDate }}</td>
+              <td>{{ l.workingDays }}</td>
+              <td>{{ l.comment }}</td>
+              <td><span class="badge {{ statusClass(l.status) }}">{{ statusLabel(l.status) }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <ng-template #noLeaves><p class="empty">Aucune demande pour cet employé.</p></ng-template>
+      </div>
+    </ng-container>
+
+    <!-- ══════════ VUE BULLETINS ══════════ -->
+    <ng-container *ngIf="view === 'payslips'">
+
+      <div class="card" *ngIf="!openedPayslip">
+        <h2>Mes bulletins de paie</h2>
+        <p class="hint">Liste par mois / année — {{ payslips.length }} bulletin(s).</p>
+
+        <table *ngIf="payslips.length; else noPay">
+          <thead>
+            <tr><th>Période</th><th>Brut</th><th>Net</th><th>Prélèvement</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let p of payslips">
+              <td><strong>{{ p.period }}</strong></td>
+              <td>{{ eur(p.grossSalary) }}</td>
+              <td>{{ eur(p.netSalary) }}</td>
+              <td>{{ eur(p.incomeTax) }}</td>
+              <td style="text-align:right;">
+                <button class="btn small ghost" (click)="openPayslip(p.id)">Détail</button>
+                <button class="btn small" (click)="downloadPayslip(p.id)">PDF</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <ng-template #noPay><p class="empty">Aucun bulletin disponible.</p></ng-template>
+      </div>
+
+      <!-- Détail bulletin -->
+      <div class="card payslip-detail" *ngIf="openedPayslip">
+        <button class="btn small ghost" (click)="closePayslip()">← Retour à la liste</button>
+        <h2 style="margin-top:16px;">Bulletin — {{ openedPayslip.period }}</h2>
+        <p class="hint">{{ selected?.fullName }} · {{ selected?.matricule }} · {{ selected?.jobTitle }}</p>
+
+        <table class="lines">
+          <thead>
+            <tr><th>Libellé</th><th>Base</th><th>Taux</th><th>Montant</th></tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let line of openedPayslip.lines">
+              <td>{{ line.label }}</td>
+              <td>{{ line.base || '—' }}</td>
+              <td>{{ line.rate || '—' }}</td>
+              <td [class.amount-neg]="line.amount < 0">{{ eur(line.amount) }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="summary-grid">
+          <div class="box"><small>Salaire brut</small><strong>{{ eur(openedPayslip.grossSalary) }}</strong></div>
+          <div class="box"><small>Total cotisations</small><strong>{{ eur(openedPayslip.totalContributions) }}</strong></div>
+          <div class="box"><small>Prélèvement à la source</small><strong>{{ eur(openedPayslip.incomeTax) }}</strong></div>
+          <div class="box net"><small>Net à payer</small><strong>{{ eur(openedPayslip.netSalary) }}</strong></div>
+        </div>
+
+        <h3 style="margin-top:24px;font-size:15px;">Cumuls année</h3>
+        <div class="summary-grid">
+          <div class="box"><small>Cumul brut</small><strong>{{ eur(openedPayslip.cumulativeGross) }}</strong></div>
+          <div class="box"><small>Cumul net</small><strong>{{ eur(openedPayslip.cumulativeNet) }}</strong></div>
+          <div class="box"><small>Cumul impôt</small><strong>{{ eur(openedPayslip.cumulativeTax) }}</strong></div>
+        </div>
+
+        <button class="btn" (click)="downloadPayslip(openedPayslip.id)">⬇ Télécharger en PDF</button>
+      </div>
+    </ng-container>
+
+  </main>
+</div>
+
+<div class="toast" *ngIf="toast">{{ toast }}</div>

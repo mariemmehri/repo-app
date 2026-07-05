@@ -1,6 +1,13 @@
-# todo-app — Application fullstack Todo
+# demo-hr — Mini-portail RH (inspiré Sopra HR4YOU)
 
-Application fullstack conteneurisée composée d'un backend Spring Boot et d'un frontend Angular, avec pipeline CI/CD complet vers Google Artifact Registry.
+Application fullstack conteneurisée servant de **charge de validation** pour la pipeline GitOps CI/CD (PFE — Sopra HR Software). Elle remplace l'ancienne todo-list par des flux métier RH réalistes, **sans modifier le contrat attendu par la pipeline** (mêmes ports, mêmes noms d'images/services, même sonde de santé).
+
+Deux flux métier sont simulés :
+
+1. **Demande de congés** — formulaire (type CP/RTT/sans solde, dates, commentaire), calcul automatique des jours ouvrés, workflow de statut (En attente / Validé / Refusé), historique « mes demandes ».
+2. **Consultation de bulletins de paie** — liste par mois/année, détail (brut, net, cotisations, cumuls) avec données factices réalistes, téléchargement PDF simulé.
+
+> ⚠️ Toutes les données sont **fictives** et **en mémoire** (aucune base, aucun volume). Elles sont recréées au démarrage du backend et perdues au redémarrage du pod — comme l'app d'origine, pour ne rien ajouter qui puisse casser le déploiement.
 
 ---
 
@@ -8,131 +15,160 @@ Application fullstack conteneurisée composée d'un backend Spring Boot et d'un 
 
 ```
 todo-app/
-├── backend/                    # API REST Spring Boot (Java 17)
-├── frontend/                   # SPA Angular 17 (Nginx)
-├── docker-compose.yml          # Environnement de développement local
-└── .github/workflows/ci.yml   # Pipeline CI/CD GitHub Actions
+├── backend/    # API REST Spring Boot (Java 17) — métier RH dans com.example.todo.hr
+├── frontend/   # SPA Angular 17 (Nginx) — portail RH
+├── docker-compose.yml         # Dev local
+└── .github/workflows/ci.yml   # Pipeline CI/CD (inchangée)
 ```
+
+Le package Java reste `com.example.todo` et l'artifactId Maven `todo-backend` : le nom du JAR (donc le `COPY target/*.jar` du Dockerfile) et les noms d'images/services restent identiques. Le métier RH vit dans le sous-package `com.example.todo.hr`.
 
 ---
 
 ## Démarrage rapide — Développement local
 
-### Prérequis
-
-- Docker Desktop
-- Docker Compose v2
-
-### Lancer l'application complète
+### Avec Docker Compose (recommandé)
 
 ```bash
+cd todo-app
 docker compose up --build
 ```
 
 | Service | URL |
 |---------|-----|
-| Frontend (Angular via Nginx) | http://localhost:80 |
-| Backend API (Spring Boot) | http://localhost:8081/api/todos |
+| Frontend (portail RH) | http://localhost:80 |
+| Backend API (santé)   | http://localhost:8081/api/health |
 
-Nginx intercepte tous les appels `/api/*` et les redirige vers le backend. Le frontend utilise des chemins relatifs (`/api/todos`) — aucune configuration CORS à gérer en local ni en production.
+Nginx proxifie `/api/*` vers `todo-backend:8081` — le frontend appelle des chemins relatifs, aucun CORS à gérer.
 
-### Arrêter
+### Sans Docker
 
 ```bash
-docker compose down
+# Backend
+cd backend && mvn spring-boot:run        # port 8081
+
+# Frontend (dans un autre terminal)
+cd frontend && npm install --legacy-peer-deps && npm start   # port 4200 (ng serve)
 ```
 
 ---
 
-## Pipeline CI/CD
+## Endpoints à tester
 
-Le fichier `.github/workflows/ci.yml` orchestre trois jobs :
+### Santé (utilisés par les sondes Kubernetes — NE PAS supprimer)
 
-### Job 1 — `backend-ci`
+| Méthode | URL | Rôle |
+|---------|-----|------|
+| GET | `/api/todos` | **Route historique** interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
+| GET | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
 
-Déclenché sur tout push ou PR vers `main`.
+### Employés
+
+| Méthode | URL | Description |
+|---------|-----|-------------|
+| GET | `/api/employees` | Annuaire (5 employés fictifs) |
+| GET | `/api/employees/{id}` | Fiche d'un employé |
+
+### Congés
+
+| Méthode | URL | Description |
+|---------|-----|-------------|
+| GET | `/api/leaves?employeeId=1` | Historique « mes demandes » d'un employé |
+| POST | `/api/leaves` | Soumettre une demande (jours ouvrés calculés côté serveur) |
+| PUT | `/api/leaves/{id}/decision` | Décision manager (valider / refuser) |
+
+Exemple de soumission :
 
 ```bash
-cd backend
-mvn verify -q   # compile + tests unitaires
+curl -X POST http://localhost:8081/api/leaves \
+  -H "Content-Type: application/json" \
+  -d '{"employeeId":1,"type":"CP","startDate":"2026-09-07","endDate":"2026-09-11","comment":"Test validation"}'
+# -> workingDays calculé (5), status "EN_ATTENTE"
 ```
 
-Produit :
-- Rapport de tests (`target/surefire-reports/`) — conservé 7 jours
-- Artefact JAR (`target/*.jar`) — conservé 1 jour (utilisé par Job 3)
-
-### Job 2 — `frontend-ci`
-
-Déclenché en parallèle de Job 1.
+Exemple de décision :
 
 ```bash
-cd frontend
-npm install --legacy-peer-deps
-npm run build   # ng build --configuration production
+curl -X PUT http://localhost:8081/api/leaves/1/decision \
+  -H "Content-Type: application/json" \
+  -d '{"decision":"VALIDE","decisionComment":"OK manager"}'
 ```
 
-Produit :
-- Artefact `dist/` — conservé 1 jour (utilisé par Job 3)
+### Bulletins de paie
 
-### Job 3 — `docker-build-push`
+| Méthode | URL | Description |
+|---------|-----|-------------|
+| GET | `/api/payslips?employeeId=1` | Liste des bulletins (3 par employé) |
+| GET | `/api/payslips/{id}` | Détail (lignes de cotisations, cumuls) |
+| GET | `/api/payslips/{id}/download` | Téléchargement PDF simulé (`application/pdf`) |
 
-Exécuté **uniquement sur push** (pas sur PR) après succès de Job 1 et Job 2.
-
-**Flux d'exécution :**
-
-```
-1. Téléchargement artefacts (JAR + dist)
-2. Auth GCP via OIDC (Workload Identity Federation — aucune clé JSON)
-3. Build image backend   → europe-west1-docker.pkg.dev/.../todo-backend:<SHA>
-4. Scan Trivy backend    → échoue si CVE CRITICAL non patchée
-5. Push backend          → GAR (tag SHA + tag latest)
-6. Build image frontend  → europe-west1-docker.pkg.dev/.../todo-frontend:<SHA>
-7. Scan Trivy frontend   → même règle
-8. Push frontend
-9. Vérification images   → gcloud artifacts docker tags list (validation)
-10. Clone repo-config
-11. yq patch values-staging.yaml (backend.image.tag + frontend.image.tag = <SHA>)
-12. git commit + push → déclenche ArgoCD
-```
-
-Le tag d'image est le **short SHA Git** (`${GITHUB_SHA::7}`), assurant la traçabilité complète entre un commit applicatif et l'image déployée sur le cluster.
-
-### Pattern Build-Once, Promote Always
-
-Le CI compile le code UNE fois (Job 1 et 2), stocke les artefacts, et les Dockerfiles se contentent de les empaqueter. Cela garantit que l'image déployée en staging est strictement identique au binaire testé.
-
-```
-Code → compile/test (Job 1/2) → JAR/dist → empaqueté dans image Docker → poussé tel quel
-                                                                          (pas de recompilation)
+```bash
+curl -OJ http://localhost:8081/api/payslips/1/download   # -> bulletin_SHR-0001_2026-03.pdf
 ```
 
 ---
 
-## Variables et secrets GitHub requis
+## Données de démonstration
 
-| Type | Nom | Description |
-|------|-----|-------------|
-| Variable | `GCP_PROJECT_ID` | ID du projet GCP |
-| Variable | `GCP_REGION` | Région (`europe-west1`) |
-| Variable | `GAR_REPOSITORY` | `<project>/<repo-name>` |
-| Variable | `GCP_WORKLOAD_PROVIDER` | Nom complet du WIF provider |
-| Variable | `GCP_SERVICE_ACCOUNT` | Email du SA `sa-github-actions` |
-| Variable | `CONFIG_REPO` | `owner/repo-config` |
-| Secret | `GH_PAT` | PAT GitHub (`contents:write` sur repo-config) |
+- **5 employés** (`SHR-0001` → `SHR-0005`) dans différents départements, avec soldes CP/RTT.
+- **Historique de congés** varié : demandes validées, refusées, en attente (répartis sur les 5 employés).
+- **3 bulletins par employé** (Mars, Avril, Mai 2026) avec brut/net/cotisations et cumuls annuels.
+
+Toutes ces données sont générées au démarrage par [`HrDataStore`](backend/src/main/java/com/example/todo/hr/service/HrDataStore.java).
 
 ---
 
-## Sécurité
+## Vérifier chaque étape du flux via les logs
 
-- **WIF** : authentification sans clé JSON — le token OIDC GitHub est échangé contre un token GCP à durée de vie courte.
-- **Trivy** : `exit-code: 1` sur CVE CRITICAL — le pipeline bloque avant le push si une vulnérabilité critique est détectée.
-- **Utilisateurs non-root** : les deux Dockerfiles créent un groupe/utilisateur `app` et basculent dessus avant `ENTRYPOINT`.
-- **Images Alpine** : `eclipse-temurin:17-jre-alpine` et `nginx:alpine` minimisent la surface d'attaque.
-- **Vérification avant GitOps** : le CI vérifie que l'image existe bien dans le registry avant de patcher le repo-config (évite de déployer une image fantôme).
+Le backend émet des logs préfixés pour suivre la validation pas à pas :
+
+| Préfixe | Émis lors de |
+|---------|--------------|
+| `[SEED]` | Chargement du jeu de données au démarrage (employés, congés, bulletins) |
+| `[API]` | Chaque appel REST reçu (méthode + URL + paramètres) |
+| `[LEAVE][CALC]` | Calcul des jours ouvrés (dates → nombre de jours) |
+| `[LEAVE][SUBMIT]` | Soumission d'une demande (avant/après enregistrement) |
+| `[LEAVE][DECISION]` | Validation / refus d'une demande |
+| `[LEAVE][HISTORY]` | Consultation de l'historique |
+| `[PAY]` / téléchargement | Chargement / génération du PDF d'un bulletin |
+
+Au démarrage, un encadré `Demo RH … backend PRÊT` récapitule tous les endpoints.
+
+Côté frontend, la console navigateur affiche des logs `[HR-UI]` / `[HR-UI][CONGES]` / `[HR-UI][PAIE]` pour tracer les actions utilisateur.
+
+Suivre les logs du backend en local :
+
+```bash
+docker compose logs -f backend
+```
+
+Sur le cluster :
+
+```bash
+kubectl logs -n staging deploy/todo-backend -f
+```
+
+---
+
+## Contrat pipeline préservé (pourquoi ça ne casse rien)
+
+| Élément | Valeur (inchangée) |
+|---------|--------------------|
+| Artefact backend | `backend/target/*.jar` (`mvn verify -q` OK, aucun test → pas d'échec) |
+| Artefact frontend | `frontend/dist/todo-frontend/browser` |
+| Port backend | `8081` |
+| Port frontend | `80` |
+| Nom images | `todo-backend`, `todo-frontend` |
+| Nom services K8s | `todo-backend`, `todo-frontend` |
+| Sonde readiness/liveness | `GET /api/todos` (conservée, renvoie 200) |
+| Proxy Nginx | `/api/` → `http://todo-backend:8081` |
+
+Aucun changement dans `ci.yml`, `docker-compose.yml`, `nginx.conf`, les Dockerfiles ni le chart Helm n'est nécessaire.
 
 ---
 
 ## Pour aller plus loin
 
-- [backend/README.md](backend/README.md) — API Spring Boot, endpoints, développement
-- [frontend/README.md](frontend/README.md) — Angular, Nginx, build
+- [backend/README.md](backend/README.md) — API Spring Boot
+- [frontend/README.md](frontend/README.md) — Angular / Nginx
+- La documentation détaillée de la pipeline CI/CD (jobs, WIF, Trivy, GitOps) reste valable — voir `.github/workflows/ci.yml`.

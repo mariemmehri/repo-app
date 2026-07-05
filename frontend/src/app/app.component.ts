@@ -1,102 +1,163 @@
 import { Component, OnInit } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClientModule } from '@angular/common/http';
-
-interface Todo {
-  id?: number;
-  title: string;
-  completed: boolean;
-}
+import { HrService } from './hr.service';
+import { Employee, LeaveRequest, LeaveType, Payslip } from './models';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, HttpClientModule],
-  template: `
-    <div class="container">
-      <h1>📝 Todo List</h1>
-      <p class="subtitle">Application conteneurisée avec Docker</p>
-
-      <div class="add-form">
-        <input
-          [(ngModel)]="newTitle"
-          placeholder="Ajouter une tâche..."
-          (keyup.enter)="addTodo()"
-        />
-        <button (click)="addTodo()">Ajouter</button>
-      </div>
-
-      <ul class="todo-list">
-        <li *ngFor="let todo of todos" [class.done]="todo.completed">
-          <input
-            type="checkbox"
-            [checked]="todo.completed"
-            (change)="toggleTodo(todo)"
-          />
-          <span>{{ todo.title }}</span>
-          <button class="delete" (click)="deleteTodo(todo)">✕</button>
-        </li>
-      </ul>
-
-      <p *ngIf="todos.length === 0" class="empty">Aucune tâche pour l'instant.</p>
-    </div>
-  `,
-  styles: [`
-    body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; }
-    .container { max-width: 600px; margin: 60px auto; background: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-    h1 { margin: 0 0 4px; font-size: 28px; color: #1a1a2e; }
-    .subtitle { color: #888; margin: 0 0 24px; font-size: 14px; }
-    .add-form { display: flex; gap: 10px; margin-bottom: 24px; }
-    input[type=text], input:not([type=checkbox]) { flex: 1; padding: 10px 14px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 15px; outline: none; }
-    input:focus { border-color: #4f46e5; }
-    button { padding: 10px 20px; background: #4f46e5; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
-    button:hover { background: #4338ca; }
-    .todo-list { list-style: none; padding: 0; margin: 0; }
-    li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
-    li.done span { text-decoration: line-through; color: #aaa; }
-    li span { flex: 1; font-size: 15px; }
-    .delete { padding: 4px 10px; background: #fee2e2; color: #dc2626; font-size: 13px; }
-    .delete:hover { background: #fecaca; }
-    .empty { text-align: center; color: #aaa; margin-top: 20px; }
-  `]
+  imports: [CommonModule, FormsModule],
+  templateUrl: './app.component.html',
 })
 export class AppComponent implements OnInit {
-  todos: Todo[] = [];
-  newTitle = '';
 
-  private apiUrl = '/api/todos';
+  employees: Employee[] = [];
+  selected?: Employee;
+  view: 'leaves' | 'payslips' = 'leaves';
 
-  constructor(private http: HttpClient) {}
+  // Congés
+  leaves: LeaveRequest[] = [];
+  form: { type: LeaveType; startDate: string; endDate: string; comment: string } = {
+    type: 'CP', startDate: '', endDate: '', comment: '',
+  };
 
-  ngOnInit() {
-    this.loadTodos();
-  }
+  // Bulletins
+  payslips: Payslip[] = [];
+  openedPayslip?: Payslip;
 
-  loadTodos() {
-    this.http.get<Todo[]>(this.apiUrl).subscribe(data => this.todos = data);
-  }
+  toast = '';
 
-  addTodo() {
-    if (!this.newTitle.trim()) return;
-    const todo: Todo = { title: this.newTitle, completed: false };
-    this.http.post<Todo>(this.apiUrl, todo).subscribe(created => {
-      this.todos.push(created);
-      this.newTitle = '';
+  constructor(private hr: HrService) {}
+
+  ngOnInit(): void {
+    console.info('[HR-UI] Démarrage du portail RH — chargement des employés…');
+    this.hr.getEmployees().subscribe(list => {
+      this.employees = list;
+      console.info(`[HR-UI] ${list.length} employé(s) chargé(s)`, list);
+      if (list.length) {
+        this.selectEmployee(list[0].id);
+      }
     });
   }
 
-  toggleTodo(todo: Todo) {
-    const updated = { ...todo, completed: !todo.completed };
-    this.http.put<Todo>(`${this.apiUrl}/${todo.id}`, updated).subscribe(() => {
-      todo.completed = !todo.completed;
+  selectEmployee(id: number): void {
+    this.selected = this.employees.find(e => e.id === Number(id));
+    console.info('[HR-UI] Employé sélectionné :', this.selected?.fullName);
+    this.openedPayslip = undefined;
+    this.loadLeaves();
+    this.loadPayslips();
+  }
+
+  setView(v: 'leaves' | 'payslips'): void {
+    this.view = v;
+    console.info('[HR-UI] Vue active :', v);
+  }
+
+  initials(e?: Employee): string {
+    if (!e) return '?';
+    return (e.firstName[0] + e.lastName[0]).toUpperCase();
+  }
+
+  // ─── Congés ─────────────────────────────────────────────
+  loadLeaves(): void {
+    if (!this.selected) return;
+    this.hr.getLeaves(this.selected.id).subscribe(l => {
+      this.leaves = l;
+      console.info(`[HR-UI][CONGES] Historique chargé : ${l.length} demande(s)`, l);
     });
   }
 
-  deleteTodo(todo: Todo) {
-    this.http.delete(`${this.apiUrl}/${todo.id}`).subscribe(() => {
-      this.todos = this.todos.filter(t => t.id !== todo.id);
+  submitLeave(): void {
+    if (!this.selected) return;
+    if (!this.form.startDate || !this.form.endDate) {
+      this.showToast('Veuillez saisir les dates de début et de fin.');
+      return;
+    }
+    const payload: Partial<LeaveRequest> = {
+      employeeId: this.selected.id,
+      type: this.form.type,
+      startDate: this.form.startDate,
+      endDate: this.form.endDate,
+      comment: this.form.comment,
+    };
+    console.info('[HR-UI][CONGES] Soumission de la demande…', payload);
+    this.hr.submitLeave(payload).subscribe({
+      next: saved => {
+        console.info('[HR-UI][CONGES] Demande enregistrée :', saved);
+        this.showToast(`Demande enregistrée — ${saved.workingDays} jour(s) ouvré(s), statut : En attente`);
+        this.form = { type: 'CP', startDate: '', endDate: '', comment: '' };
+        this.loadLeaves();
+      },
+      error: err => {
+        console.error('[HR-UI][CONGES] Erreur soumission :', err);
+        this.showToast('Erreur : ' + (err?.error?.error ?? 'soumission impossible'));
+      },
     });
+  }
+
+  /** Estimation locale des jours ouvrés (aperçu avant envoi ; le backend recalcule). */
+  get estimatedDays(): number | null {
+    if (!this.form.startDate || !this.form.endDate) return null;
+    const start = new Date(this.form.startDate);
+    const end = new Date(this.form.endDate);
+    if (end < start) return null;
+    let count = 0;
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const day = cursor.getDay();
+      if (day !== 0 && day !== 6) count++;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return count;
+  }
+
+  typeLabel(t: LeaveType): string {
+    return { CP: 'Congés payés', RTT: 'RTT', SANS_SOLDE: 'Sans solde' }[t];
+  }
+
+  statusLabel(s: string): string {
+    return { EN_ATTENTE: 'En attente', VALIDE: 'Validé', REFUSE: 'Refusé' }[s] ?? s;
+  }
+
+  statusClass(s: string): string {
+    return { EN_ATTENTE: 'warn', VALIDE: 'ok', REFUSE: 'ko' }[s] ?? 'warn';
+  }
+
+  // ─── Bulletins ──────────────────────────────────────────
+  loadPayslips(): void {
+    if (!this.selected) return;
+    this.hr.getPayslips(this.selected.id).subscribe(p => {
+      this.payslips = p;
+      console.info(`[HR-UI][PAIE] ${p.length} bulletin(s) chargé(s)`, p);
+    });
+  }
+
+  openPayslip(id: number): void {
+    console.info('[HR-UI][PAIE] Ouverture du bulletin', id);
+    this.hr.getPayslip(id).subscribe(p => {
+      this.openedPayslip = p;
+      console.info('[HR-UI][PAIE] Détail chargé :', p);
+    });
+  }
+
+  closePayslip(): void {
+    this.openedPayslip = undefined;
+  }
+
+  downloadPayslip(id: number): void {
+    const url = this.hr.payslipDownloadUrl(id);
+    console.info('[HR-UI][PAIE] Téléchargement PDF simulé :', url);
+    this.showToast('Téléchargement du bulletin PDF…');
+    window.open(url, '_blank');
+  }
+
+  eur(v: number): string {
+    return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+
+  private showToast(msg: string): void {
+    this.toast = msg;
+    setTimeout(() => (this.toast = ''), 3500);
   }
 }
