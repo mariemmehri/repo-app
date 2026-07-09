@@ -1,9 +1,12 @@
 package com.example.hr.model;
 
+import jakarta.persistence.Embeddable;
+
 /**
  * Ligne de bulletin de paie (cotisation, retenue ou gain).
  * amount > 0 = gain ; amount < 0 = retenue/cotisation salariale.
  */
+@Embeddable
 public class PayslipLine {
 
     private String label;      // ex: "Sécurité sociale - Maladie"

@@ -1,12 +1,25 @@
 package com.example.hr.model;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
 /**
  * Employé fictif de la démo RH (inspiré Sopra HR4YOU).
  * Aucune donnée réelle — jeu de démonstration uniquement.
  */
+@Entity
+@Table(name = "employees")
 public class Employee {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(unique = true, nullable = false, length = 20)
     private String matricule;     // ex: SHR-0001
     private String firstName;
     private String lastName;
