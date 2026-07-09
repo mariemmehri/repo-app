@@ -11,6 +11,8 @@ services:
       POSTGRES_PASSWORD: hrpass
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hruser -d hrdb"]
       interval: 10s
