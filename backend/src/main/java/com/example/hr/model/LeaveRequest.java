@@ -1,6 +1,14 @@
 package com.example.hr.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 
 import java.time.LocalDate;
 
@@ -8,25 +16,42 @@ import java.time.LocalDate;
  * Demande de congé d'un employé.
  * Le nombre de jours ouvrés est calculé automatiquement côté service.
  */
+@Entity
+@Table(name = "leave_requests")
 public class LeaveRequest {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(nullable = false)
     private Long employeeId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private LeaveType type;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
+    @Column(nullable = false)
     private LocalDate startDate;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
+    @Column(nullable = false)
     private LocalDate endDate;
 
+    @Column(columnDefinition = "TEXT")
     private String comment;
+
     private int workingDays;        // jours ouvrés calculés
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private LeaveStatus status;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate requestedAt;
 
+    @Column(columnDefinition = "TEXT")
     private String decisionComment; // motif de validation/refus (optionnel)
 
     public LeaveRequest() {

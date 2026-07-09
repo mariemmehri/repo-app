@@ -2,6 +2,24 @@ version: '3.8'
 
 services:
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: hr-postgres
+    environment:
+      POSTGRES_DB: hrdb
+      POSTGRES_USER: hruser
+      POSTGRES_PASSWORD: hrpass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hruser -d hrdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - hr-network
+
   backend:
     build:
       context: ./backend
@@ -9,6 +27,15 @@ services:
     container_name: hr-backend
     ports:
       - "8081:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: hrdb
+      DB_USER: hruser
+      DB_PASSWORD: hrpass
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - hr-network
 
@@ -23,6 +50,9 @@ services:
       - backend
     networks:
       - hr-network
+
+volumes:
+  postgres_data:
 
 networks:
   hr-network:

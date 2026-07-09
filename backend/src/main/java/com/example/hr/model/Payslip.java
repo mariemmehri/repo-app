@@ -1,16 +1,40 @@
 package com.example.hr.model;
 
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderColumn;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Bulletin de paie mensuel (données factices réalistes).
  */
+@Entity
+@Table(name = "payslips",
+       uniqueConstraints = @UniqueConstraint(columnNames = {"employee_id", "year", "month"}))
 public class Payslip {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "employee_id", nullable = false)
     private Long employeeId;
+
+    @Column(nullable = false)
     private int year;
+
+    @Column(nullable = false)
     private int month;              // 1-12
     private String period;          // ex: "Mars 2026"
 
@@ -25,6 +49,9 @@ public class Payslip {
     private double cumulativeNet;
     private double cumulativeTax;
 
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "payslip_lines", joinColumns = @JoinColumn(name = "payslip_id"))
+    @OrderColumn(name = "line_order")
     private List<PayslipLine> lines = new ArrayList<>();
 
     public Payslip() {

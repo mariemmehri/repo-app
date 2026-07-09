@@ -3,7 +3,8 @@ package com.example.hr.web;
 import com.example.hr.model.Employee;
 import com.example.hr.model.Payslip;
 import com.example.hr.model.PayslipLine;
-import com.example.hr.service.HrDataStore;
+import com.example.hr.repository.EmployeeRepository;
+import com.example.hr.repository.PayslipRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -24,25 +25,29 @@ public class PayslipController {
 
     private static final Logger log = LoggerFactory.getLogger(PayslipController.class);
 
-    private final HrDataStore store;
+    private final PayslipRepository payslipRepository;
+    private final EmployeeRepository employeeRepository;
 
-    public PayslipController(HrDataStore store) {
-        this.store = store;
+    public PayslipController(PayslipRepository payslipRepository,
+                             EmployeeRepository employeeRepository) {
+        this.payslipRepository = payslipRepository;
+        this.employeeRepository = employeeRepository;
     }
 
     /** Liste des bulletins d'un employé (par mois/année). */
     @GetMapping
     public List<Payslip> list(@RequestParam Long employeeId) {
         log.info("[API] GET /api/payslips?employeeId={}", employeeId);
-        return store.getPayslipsByEmployee(employeeId);
+        return payslipRepository.findByEmployeeId(employeeId);
     }
 
     /** Détail d'un bulletin. */
     @GetMapping("/{id}")
     public ResponseEntity<Payslip> detail(@PathVariable Long id) {
         log.info("[API] GET /api/payslips/{}", id);
-        Payslip p = store.findPayslip(id);
-        return p == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(p);
+        return payslipRepository.findById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     /**
@@ -54,11 +59,11 @@ public class PayslipController {
     @GetMapping("/{id}/download")
     public ResponseEntity<byte[]> download(@PathVariable Long id) {
         log.info("[API] GET /api/payslips/{}/download (PDF simulé)", id);
-        Payslip p = store.findPayslip(id);
+        Payslip p = payslipRepository.findById(id).orElse(null);
         if (p == null) {
             return ResponseEntity.notFound().build();
         }
-        Employee e = store.findEmployee(p.getEmployeeId());
+        Employee e = employeeRepository.findById(p.getEmployeeId()).orElse(null);
         byte[] content = renderPseudoPdf(p, e);
 
         String filename = "bulletin_" + (e == null ? "emp" : e.getMatricule())
