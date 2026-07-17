@@ -2,9 +2,9 @@ name: CI - Build, Test and Push to GCP Artifact Registry
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
 
 permissions:
   contents: read
@@ -128,6 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend-ci, frontend-ci]
     if: github.event_name == 'push'
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
     env:
       # ✅ REGISTRY défini au niveau du job, pas globalement
       REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}
@@ -208,7 +210,52 @@ jobs:
         run: |
           docker push ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
 
-      # ── GitOps - Update repo-config ───────────────────────────
+  # ─────────────────────────────────────────────────────────────
+  # JOB 4 - Deploy : patch le values file GitOps selon la branche
+  #   develop -> values-dev.yaml   (namespace dev)
+  #   main    -> values-staging.yaml (namespace staging)
+  #   (prod est promu par tag via promote-prod.yml, jamais ici)
+  # ─────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy - Update GitOps config
+    runs-on: ubuntu-latest
+    needs: docker-build-push
+    if: github.event_name == 'push'
+    env:
+      REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}
+      IMAGE_TAG: ${{ needs.docker-build-push.outputs.image_tag }}
+
+    steps:
+      - name: Resolve target environment
+        id: target
+        run: |
+          case "${{ github.ref }}" in
+            refs/heads/develop)
+              echo "values_file=charts/hr-app/values-dev.yaml" >> "$GITHUB_OUTPUT"
+              echo "environment=dev" >> "$GITHUB_OUTPUT"
+              ;;
+            refs/heads/main)
+              echo "values_file=charts/hr-app/values-staging.yaml" >> "$GITHUB_OUTPUT"
+              echo "environment=staging" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Branche non mappée à un environnement: ${{ github.ref }}"
+              exit 1
+              ;;
+          esac
+
+      # ── Authentification GCP via OIDC ─────────────────────────
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
       - name: Install yq
         run: |
           wget -qO /usr/local/bin/yq \
@@ -220,18 +267,18 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
-          VALUES_FILE: charts/hr-app/values-staging.yaml
+          VALUES_FILE: ${{ steps.target.outputs.values_file }}
+          TARGET_ENV: ${{ steps.target.outputs.environment }}
           GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
           GIT_USER_NAME: "github-actions[bot]"
-          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }} #src unique
 
         run: |
           set -euo pipefail
 
-          echo "Using IMAGE_TAG=$IMAGE_TAG"
+          echo "Deploying IMAGE_TAG=$IMAGE_TAG to environment=$TARGET_ENV (${VALUES_FILE})"
 
           # ─────────────────────────────────────────────
-          # 1. VERIFY IMAGE EXISTS IN REGISTRY (CRITICAL FIX)
+          # 1. VERIFY IMAGE EXISTS IN REGISTRY (build once)
           # ─────────────────────────────────────────────
           echo "Checking backend image.."
 
@@ -284,8 +331,8 @@ jobs:
             exit 0
           fi
 
-          git commit -m "ci: update image tags to ${IMAGE_TAG}"
+          git commit -m "ci: update ${TARGET_ENV} image tags to ${IMAGE_TAG}"
 
           git push origin HEAD:main
 
-          echo "GitOps update completed ✔"
+          echo "GitOps update completed ✔ (${TARGET_ENV})"
