@@ -1,0 +1,151 @@
+name: Promote to Production
+
+# Déclenché par un tag de version posé sur un commit de main DÉJÀ buildé
+# par ci.yml. Aucun rebuild ici — l'image existante (tag SHA court) est
+# copiée telle quelle (digest préservé via crane) vers le registre prod,
+# puis values-prod.yaml est patché. Le déploiement réel reste soumis au
+# sync manuel de l'Application ArgoCD hr-prod.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  BACKEND_IMAGE: hr-backend
+  FRONTEND_IMAGE: hr-frontend
+  CRANE_VERSION: v0.20.2
+
+jobs:
+  promote:
+    name: Promote image to prod registry
+    runs-on: ubuntu-latest
+    # Gate humain n°1 : reviewers obligatoires sur l'Environment GitHub
+    # "production" (Settings > Environments). Gate n°2 : sync manuel ArgoCD.
+    environment: production
+    env:
+      SRC_REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}
+      PROD_REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_PROD_REPOSITORY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Authentification GCP via OIDC ─────────────────────────
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Resolve source image tag (SHA du commit taggé)
+        id: meta
+        run: |
+          echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Promoting commit ${GITHUB_SHA::7} as ${GITHUB_REF_NAME}"
+
+      # ── Garde-fou build-once : l'image DOIT déjà exister ───────
+      - name: Verify images exist in source registry (no rebuild)
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          for IMAGE in ${{ env.BACKEND_IMAGE }} ${{ env.FRONTEND_IMAGE }}; do
+            echo "Checking ${IMAGE}:${IMAGE_TAG}..."
+            gcloud artifacts docker tags list \
+              ${{ env.SRC_REGISTRY }}/${IMAGE} \
+              --filter="tag:${IMAGE_TAG}" \
+              --format="value(tag)" | grep -q "${IMAGE_TAG}" || {
+                echo "::error::Image ${IMAGE}:${IMAGE_TAG} introuvable dans ${{ env.SRC_REGISTRY }}."
+                echo "::error::Le commit taggé ${GITHUB_REF_NAME} n'a jamais été buildé sur main — tag un commit passé par le CI."
+                exit 1
+              }
+            echo "${IMAGE}:${IMAGE_TAG} exists ✔"
+          done
+
+      - name: Install crane
+        run: |
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${{ env.CRANE_VERSION }}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar xz -C /usr/local/bin crane
+          crane version
+
+      # ── Copie vers le registre prod (digest préservé) ──────────
+      - name: Copy images to prod registry
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for IMAGE in ${{ env.BACKEND_IMAGE }} ${{ env.FRONTEND_IMAGE }}; do
+            echo "Copying ${IMAGE}:${IMAGE_TAG} -> prod as ${VERSION}..."
+            crane copy \
+              ${{ env.SRC_REGISTRY }}/${IMAGE}:${IMAGE_TAG} \
+              ${{ env.PROD_REGISTRY }}/${IMAGE}:${VERSION}
+            echo "${IMAGE} promoted ✔"
+          done
+
+      # ── GitOps : patch values-prod.yaml ────────────────────────
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Update prod image tags in repo-config
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CONFIG_REPO: ${{ vars.CONFIG_REPO }}
+          VALUES_FILE: charts/hr-app/values-prod.yaml
+          VERSION: ${{ steps.meta.outputs.version }}
+          GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          GIT_USER_NAME: "github-actions[bot]"
+        run: |
+          set -euo pipefail
+
+          git clone --depth 1 \
+            https://x-access-token:${GH_PAT}@github.com/${CONFIG_REPO}.git \
+            config-repo
+
+          cd config-repo
+
+          yq eval '
+            .backend.image.tag = strenv(VERSION) |
+            .frontend.image.tag = strenv(VERSION)
+          ' -i ${VALUES_FILE}
+
+          echo "Updated values:"
+          yq eval '.backend.image.tag, .frontend.image.tag' ${VALUES_FILE}
+
+          git config user.email "${GIT_USER_EMAIL}"
+          git config user.name "${GIT_USER_NAME}"
+
+          git add ${VALUES_FILE}
+
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+
+          git commit -m "ci: promote ${VERSION} to prod"
+          git push origin HEAD:main
+
+          echo ""
+          echo "═══════════════════════════════════════════════════════"
+          echo " Promotion ${VERSION} commitée dans values-prod.yaml."
+          echo " hr-prod est maintenant OutOfSync dans ArgoCD."
+          echo " Déploiement réel : sync manuel requis"
+          echo "   argocd app sync hr-prod    (ou via l'UI ArgoCD)"
+          echo "═══════════════════════════════════════════════════════"
