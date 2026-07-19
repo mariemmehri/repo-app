@@ -263,9 +263,20 @@ jobs:
           chmod +x /usr/local/bin/yq
           yq --version
 
+      # ── Token GitHub App (remplace le GH_PAT) — scopé repo-config,
+      # expire en 1h, révoqué automatiquement en fin de job ──────
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: mariemmehri
+          repositories: repo-config
+
       - name: Update image tags in repo-config
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
           VALUES_FILE: ${{ steps.target.outputs.values_file }}
           TARGET_ENV: ${{ steps.target.outputs.environment }}
@@ -302,7 +313,7 @@ jobs:
           # 2. CLONE CONFIG REPO
           # ─────────────────────────────────────────────
           git clone --depth 1 \
-            https://x-access-token:${GH_PAT}@github.com/${CONFIG_REPO}.git \
+            https://x-access-token:${GH_TOKEN}@github.com/${CONFIG_REPO}.git \
             config-repo
 
           cd config-repo
