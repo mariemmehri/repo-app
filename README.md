@@ -1,4 +1,6 @@
 # demo-hr — Mini-portail RH (inspiré Sopra HR4YOU)
+echo "" >> README.md
+echo "<!-- test: vérification des checks PR -->" >> README.md 
 
 Application fullstack conteneurisée servant de **charge de validation** pour la pipeline GitOps CI/CD (PFE — Sopra HR Software). C'est un portail RH (SIRH) avec des flux métier réalistes ; le package Java, l'artifactId Maven, les images Docker, les Services/Deployments K8s et la sonde de santé reflètent tous le métier RH (`com.example.hr`, `hr-backend`/`hr-frontend`, `GET /api/health-check`).
 
