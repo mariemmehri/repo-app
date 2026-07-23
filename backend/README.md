@@ -1,6 +1,6 @@
 # Backend — API REST Spring Boot (demo-hr)
 
-API REST du mini-portail RH (inspiré Sopra HR4YOU), développée avec Spring Boot 3.2 et Java 17. Elle expose deux flux métier — **demandes de congés** et **bulletins de paie** — sur des données factices en mémoire.
+API REST minimale (Spring Boot 3.2, Java 17). Le backend n'expose aujourd'hui qu'un endpoint de santé — aucune donnée métier, aucune persistance.
 
 ---
 
@@ -12,10 +12,10 @@ API REST du mini-portail RH (inspiré Sopra HR4YOU), développée avec Spring Bo
 | Spring Boot | 3.2.0 |
 | Build | Maven (`com.example:hr-backend`) |
 | Port | 8081 |
-| Stockage | In-memory (aucune base, aucun volume) |
+| Stockage | Aucun (pas de base, pas de volume) |
 | Image de base | `eclipse-temurin:17-jre-alpine` |
 
-> Le package Java est `com.example.hr`, l'artifactId Maven `hr-backend` et l'image Docker `hr-backend`. Le métier RH vit dans les sous-packages `com.example.hr.model` / `.service` / `.web`.
+> Le package Java est `com.example.hr`, l'artifactId Maven `hr-backend` et l'image Docker `hr-backend`.
 
 ---
 
@@ -59,56 +59,15 @@ docker compose up --build
 
 ## Endpoints API
 
-### Santé (interrogés par les sondes Kubernetes — NE PAS supprimer)
-
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
-| `GET` | `/api/health-check` | Route interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
+| `GET` | `/api/health-check` | Route interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). NE PAS supprimer. |
 | `GET` | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
 
-### Employés
-
-| Méthode | Chemin | Description |
-|---------|--------|-------------|
-| `GET` | `/api/employees` | Annuaire (5 employés fictifs) |
-| `GET` | `/api/employees/{id}` | Fiche d'un employé |
-
-### Congés
-
-| Méthode | Chemin | Description | Corps |
-|---------|--------|-------------|-------|
-| `GET` | `/api/leaves?employeeId=1` | Historique « mes demandes » | — |
-| `POST` | `/api/leaves` | Soumettre une demande (jours ouvrés calculés serveur) | `{"employeeId":1,"type":"CP","startDate":"2026-09-07","endDate":"2026-09-11","comment":"..."}` |
-| `PUT` | `/api/leaves/{id}/decision` | Décision manager | `{"decision":"VALIDE","decisionComment":"..."}` |
-
-`type` ∈ `CP`, `RTT`, `SANS_SOLDE` — `decision` ∈ `VALIDE`, `REFUSE`.
-
-### Bulletins de paie
-
-| Méthode | Chemin | Description |
-|---------|--------|-------------|
-| `GET` | `/api/payslips?employeeId=1` | Liste des bulletins (3 par employé) |
-| `GET` | `/api/payslips/{id}` | Détail (lignes de cotisations, cumuls) |
-| `GET` | `/api/payslips/{id}/download` | Téléchargement PDF simulé (`application/pdf`) |
-
-### Exemples cURL
+### Exemple cURL
 
 ```bash
-# Santé
 curl http://localhost:8081/api/health
-
-# Soumettre une demande de congé (jours ouvrés calculés automatiquement)
-curl -X POST http://localhost:8081/api/leaves \
-  -H "Content-Type: application/json" \
-  -d '{"employeeId":1,"type":"CP","startDate":"2026-09-07","endDate":"2026-09-11","comment":"Test"}'
-
-# Valider la demande id=1
-curl -X PUT http://localhost:8081/api/leaves/1/decision \
-  -H "Content-Type: application/json" \
-  -d '{"decision":"VALIDE","decisionComment":"OK manager"}'
-
-# Télécharger un bulletin en PDF
-curl -OJ http://localhost:8081/api/payslips/1/download
 ```
 
 ---
@@ -118,53 +77,11 @@ curl -OJ http://localhost:8081/api/payslips/1/download
 ```
 src/main/java/com/example/hr/
 ├── HrApplication.java          # Point d'entrée @SpringBootApplication + log de démarrage
-├── HealthController.java       # Endpoints santé : /api/health-check (sonde K8s) + /api/health
-├── model/
-│   ├── Employee.java
-│   ├── LeaveRequest.java   # + LeaveType (CP/RTT/SANS_SOLDE), LeaveStatus (EN_ATTENTE/VALIDE/REFUSE)
-│   ├── Payslip.java        # + PayslipLine (lignes de cotisations)
-│   └── ...
-├── service/
-│   ├── HrDataStore.java            # Dépôt in-memory + seed des données de démo
-│   ├── WorkingDaysCalculator.java  # Calcul jours ouvrés (hors WE + fériés FR fixes)
-│   ├── LeaveService.java           # Logique congés (soumission + décision)
-│   └── PayslipFactory.java         # Génération de bulletins réalistes
-└── web/
-    ├── EmployeeController.java
-    ├── LeaveController.java
-    └── PayslipController.java      # inclut la génération du PDF simulé
+└── HealthController.java       # Endpoints santé : /api/health-check (sonde K8s) + /api/health
 
 src/main/resources/
 └── application.properties      # server.port=8081
 ```
-
-### Données de démonstration
-
-Générées au démarrage par `HrDataStore` (voir logs `[SEED]`) :
-- **5 employés** (`SHR-0001` → `SHR-0005`) dans différents départements, avec soldes CP/RTT
-- **10 demandes de congé** variées (validées / refusées / en attente)
-- **15 bulletins** (3 par employé : Mars, Avril, Mai 2026)
-
-Les données sont **perdues au redémarrage** du pod — c'est volontaire : aucune dépendance externe (DB, volume) n'est introduite, pour ne rien ajouter qui puisse fragiliser le déploiement.
-
-### Génération du PDF
-
-Le téléchargement (`/api/payslips/{id}/download`) construit à la main un PDF 1.4 minimal (texte) — pas de dépendance iText/PDFBox, ce qui garde la surface d'attaque scannée par Trivy identique à l'origine (une seule dépendance applicative).
-
----
-
-## Logs de validation
-
-Le backend émet des logs préfixés pour suivre chaque étape :
-
-| Préfixe | Émis lors de |
-|---------|--------------|
-| `[SEED]` / `[SEED][EMP/LEAVE/PAY]` | Chargement du jeu de données au démarrage |
-| `[API]` | Chaque appel REST reçu |
-| `[LEAVE][CALC]` | Calcul des jours ouvrés |
-| `[LEAVE][SUBMIT]` / `[LEAVE][DECISION]` / `[LEAVE][HISTORY]` | Cycle de vie d'une demande |
-
-Un encadré `Demo RH … backend PRÊT` récapitule tous les endpoints au démarrage.
 
 ---
 
@@ -200,7 +117,7 @@ mvn test     # tests unitaires
 mvn verify   # compile + tests + package (ce que lance le CI : mvn verify -q)
 ```
 
-Il n'y a pas de test unitaire pour le moment : `mvn verify` se limite donc à compiler et packager le JAR (aucun échec possible côté tests). Les rapports éventuels seraient dans `target/surefire-reports/`.
+`HrApplicationTests` vérifie uniquement que le contexte Spring démarre — aucune dépendance externe requise.
 
 ---
 
@@ -221,7 +138,5 @@ Une seule dépendance applicative :
 
 ## Limitations connues (assumées pour la démo)
 
-- **Pas de persistance** : données en mémoire, perdues au redémarrage du pod. Une vraie implémentation utiliserait Spring Data JPA + PostgreSQL.
-- **PDF simulé** : document texte minimal, pas un vrai bulletin mis en page.
-- **Jours fériés** : seuls les fériés français à date fixe sont exclus (pas les fériés mobiles type Pâques/Ascension).
+- **Pas de persistance et pas de logique métier** : le backend n'expose qu'un health check ; l'ancien domaine RH (employés, congés, bulletins de paie, JPA + PostgreSQL) a été retiré.
 - **CORS ouvert** : `@CrossOrigin(origins = "*")` acceptable en démo ; en production Nginx proxifie `/api/*` donc les appels sont same-origin.
