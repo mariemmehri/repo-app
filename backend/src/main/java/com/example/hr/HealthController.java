@@ -11,9 +11,6 @@ import java.util.Map;
  * Endpoint de santé interrogé par les sondes Kubernetes (readiness + liveness)
  * du chart Helm (charts/hr-app/templates/deployment-backend.yaml) sur /api/health-check.
  * Répond simplement 200 avec une liste vide.
- *
- * Le vrai métier RH est servi par les contrôleurs du package com.example.hr.web
- * (/api/employees, /api/leaves, /api/payslips).
  */
 @RestController
 @RequestMapping("/api")

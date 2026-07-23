@@ -25,9 +25,6 @@ public class HrApplication {
         log.info("  Demo RH (inspiré Sopra HR4YOU) — backend PRÊT");
         log.info("  Port           : 8081");
         log.info("  Santé K8s      : GET /api/health-check  (sonde) | GET /api/health");
-        log.info("  Employés       : GET /api/employees");
-        log.info("  Congés         : GET/POST /api/leaves , PUT /api/leaves/{id}/decision");
-        log.info("  Bulletins paie : GET /api/payslips , GET /api/payslips/{id}/download");
         log.info("═══════════════════════════════════════════════════════════");
     }
 }

@@ -25,21 +25,6 @@ jobs:
       run:
         working-directory: backend
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: hrdb
-          POSTGRES_USER: hruser
-          POSTGRES_PASSWORD: hrpass
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U hruser -d hrdb"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,12 +43,6 @@ jobs:
           restore-keys: ${{ runner.os }}-maven-
 
       - name: Build and Test
-        env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_NAME: hrdb
-          DB_USER: hruser
-          DB_PASSWORD: hrpass
         run: mvn verify -q
 
       - name: Upload test report
