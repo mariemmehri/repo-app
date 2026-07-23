@@ -1,15 +1,8 @@
 # demo-hr — Mini-portail RH (inspiré Sopra HR4YOU)
-echo "" >> README.md
-echo "<!-- test: vérification des checks PR -->" >> README.md 
 
-Application fullstack conteneurisée servant de **charge de validation** pour la pipeline GitOps CI/CD (PFE — Sopra HR Software). C'est un portail RH (SIRH) avec des flux métier réalistes ; le package Java, l'artifactId Maven, les images Docker, les Services/Deployments K8s et la sonde de santé reflètent tous le métier RH (`com.example.hr`, `hr-backend`/`hr-frontend`, `GET /api/health-check`).
+Application fullstack conteneurisée servant de **charge de validation** pour la pipeline GitOps CI/CD (PFE — Sopra HR Software). Le package Java, l'artifactId Maven, les images Docker, les Services/Deployments K8s et la sonde de santé reflètent le nom du projet (`com.example.hr`, `hr-backend`/`hr-frontend`, `GET /api/health-check`).
 
-Deux flux métier sont simulés :
-
-1. **Demande de congés** — formulaire (type CP/RTT/sans solde, dates, commentaire), calcul automatique des jours ouvrés, workflow de statut (En attente / Validé / Refusé), historique « mes demandes ».
-2. **Consultation de bulletins de paie** — liste par mois/année, détail (brut, net, cotisations, cumuls) avec données factices réalistes, téléchargement PDF simulé.
-
-> ⚠️ Toutes les données sont **fictives** et **en mémoire** (aucune base, aucun volume). Elles sont recréées au démarrage du backend et perdues au redémarrage du pod, pour ne rien ajouter qui puisse casser le déploiement.
+> ⚠️ Le backend n'expose aujourd'hui qu'un endpoint de santé — aucune donnée métier, aucune persistance (l'ancien domaine RH avec JPA + PostgreSQL a été retiré).
 
 ---
 
@@ -64,81 +57,13 @@ cd frontend && npm install --legacy-peer-deps && npm start   # port 4200 (ng ser
 | GET | `/api/health-check` | Route interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). |
 | GET | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
 
-### Employés
-
-| Méthode | URL | Description |
-|---------|-----|-------------|
-| GET | `/api/employees` | Annuaire (5 employés fictifs) |
-| GET | `/api/employees/{id}` | Fiche d'un employé |
-
-### Congés
-
-| Méthode | URL | Description |
-|---------|-----|-------------|
-| GET | `/api/leaves?employeeId=1` | Historique « mes demandes » d'un employé |
-| POST | `/api/leaves` | Soumettre une demande (jours ouvrés calculés côté serveur) |
-| PUT | `/api/leaves/{id}/decision` | Décision manager (valider / refuser) |
-
-Exemple de soumission :
-
 ```bash
-curl -X POST http://localhost:8081/api/leaves \
-  -H "Content-Type: application/json" \
-  -d '{"employeeId":1,"type":"CP","startDate":"2026-09-07","endDate":"2026-09-11","comment":"Test validation"}'
-# -> workingDays calculé (5), status "EN_ATTENTE"
-```
-
-Exemple de décision :
-
-```bash
-curl -X PUT http://localhost:8081/api/leaves/1/decision \
-  -H "Content-Type: application/json" \
-  -d '{"decision":"VALIDE","decisionComment":"OK manager"}'
-```
-
-### Bulletins de paie
-
-| Méthode | URL | Description |
-|---------|-----|-------------|
-| GET | `/api/payslips?employeeId=1` | Liste des bulletins (3 par employé) |
-| GET | `/api/payslips/{id}` | Détail (lignes de cotisations, cumuls) |
-| GET | `/api/payslips/{id}/download` | Téléchargement PDF simulé (`application/pdf`) |
-
-```bash
-curl -OJ http://localhost:8081/api/payslips/1/download   # -> bulletin_SHR-0001_2026-03.pdf
+curl http://localhost:8081/api/health
 ```
 
 ---
 
-## Données de démonstration
-
-- **5 employés** (`SHR-0001` → `SHR-0005`) dans différents départements, avec soldes CP/RTT.
-- **Historique de congés** varié : demandes validées, refusées, en attente (répartis sur les 5 employés).
-- **3 bulletins par employé** (Mars, Avril, Mai 2026) avec brut/net/cotisations et cumuls annuels.
-
-Toutes ces données sont générées au démarrage par [`HrDataStore`](backend/src/main/java/com/example/hr/service/HrDataStore.java).
-
----
-
-## Vérifier chaque étape du flux via les logs
-
-Le backend émet des logs préfixés pour suivre la validation pas à pas :
-
-| Préfixe | Émis lors de |
-|---------|--------------|
-| `[SEED]` | Chargement du jeu de données au démarrage (employés, congés, bulletins) |
-| `[API]` | Chaque appel REST reçu (méthode + URL + paramètres) |
-| `[LEAVE][CALC]` | Calcul des jours ouvrés (dates → nombre de jours) |
-| `[LEAVE][SUBMIT]` | Soumission d'une demande (avant/après enregistrement) |
-| `[LEAVE][DECISION]` | Validation / refus d'une demande |
-| `[LEAVE][HISTORY]` | Consultation de l'historique |
-| `[PAY]` / téléchargement | Chargement / génération du PDF d'un bulletin |
-
-Au démarrage, un encadré `Demo RH … backend PRÊT` récapitule tous les endpoints.
-
-Côté frontend, la console navigateur affiche des logs `[HR-UI]` / `[HR-UI][CONGES]` / `[HR-UI][PAIE]` pour tracer les actions utilisateur.
-
-Suivre les logs du backend en local :
+## Vérifier le démarrage via les logs
 
 ```bash
 docker compose logs -f backend
@@ -156,7 +81,7 @@ kubectl logs -n staging deploy/hr-backend -f
 
 | Élément | Valeur |
 |---------|--------|
-| Artefact backend | `backend/target/*.jar` (`mvn verify -q` OK, aucun test → pas d'échec) |
+| Artefact backend | `backend/target/*.jar` (`mvn verify -q` OK) |
 | Artefact frontend | `frontend/dist/hr-frontend/browser` |
 | Port backend | `8081` |
 | Port frontend | `80` |
