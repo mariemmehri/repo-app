@@ -25,6 +25,7 @@ public class HrApplication {
         log.info("  Demo RH (inspiré Sopra HR4YOU) — backend PRÊT");
         log.info("  Port           : 8081");
         log.info("  Santé K8s      : GET /api/health-check  (sonde) | GET /api/health");
+        log.info("  Santé BD       : GET /api/db-health");
         log.info("═══════════════════════════════════════════════════════════");
     }
 }

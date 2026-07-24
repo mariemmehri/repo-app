@@ -22,7 +22,7 @@ repo-app/
 **Package root:** `com.example.hr`
 **Port:** 8081
 
-The backend has no persistence layer — it exposes only a health check. `HealthController` serves `GET /api/health-check` (K8s readiness/liveness probe target) and `GET /api/health` (explicit status). There is no database, no ORM, and no business-domain entities/controllers.
+The backend has a real Postgres connection (Spring Data JPA + `org.postgresql:postgresql` driver pinned `42.7.2`, CVE-2024-1597) but **no business-domain entities/controllers** — there is still no employee/leave/payslip domain. `HealthController` serves `GET /api/health-check` (K8s readiness/liveness probe target), `GET /api/health` (explicit status), and `GET /api/db-health` (writes + counts a row via `HealthCheckRepository`/`HealthCheck` — the only JPA entity that exists, added purely to prove DB connectivity). `spring.datasource.*`/`spring.jpa.*` live in `application.properties`, driven by `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` env vars locally (defaults point at `docker-compose`'s `postgres` service) and overridden in staging by the `SPRING_DATASOURCE_URL`/`USERNAME`/`PASSWORD` env vars the Helm chart injects from the CNPG-generated secret `pg-staging-app` (see `repo-config`'s `charts/hr-app/templates/deployment-backend.yaml`).
 
 ## Frontend
 
@@ -64,6 +64,7 @@ npm run build                    # production build → dist/hr-frontend/browser
 |---|---|---|
 | GET | `/api/health` | `{"status":"UP"}` |
 | GET | `/api/health-check` | K8s readiness/liveness probe target |
+| GET | `/api/db-health` | `{"status":"UP","database":"postgresql","totalChecks":N}` (200) or `{"status":"DOWN",...}` (503) — real JPA insert+count round trip |
 
 ## Key Constraints
 

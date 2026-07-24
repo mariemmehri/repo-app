@@ -21,16 +21,17 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Attendre que les 2 services soient `Up` (backend `Up`, frontend `healthy`) — une trentaine de secondes.
+Attendre que les 3 services soient `Up` (postgres `healthy`, backend `Up`, frontend `healthy`) — une trentaine de secondes.
 
 ## 3. Vérifier que tout répond
 
 ```bash
 curl http://localhost:8081/api/health
+curl http://localhost:8081/api/db-health
 curl http://localhost/api/health
 ```
 
-Les deux doivent renvoyer `{"status":"UP","app":"demo-hr",...}`.
+Les deux premières doivent renvoyer `{"status":"UP",...}` — `/api/db-health` inclut `"database":"postgresql"` et un `totalChecks` qui augmente à chaque appel (preuve que Postgres répond réellement). La troisième doit renvoyer `{"status":"UP","app":"demo-hr",...}`.
 
 ## 4. Ouvrir l'application
 
@@ -43,6 +44,7 @@ Dans un navigateur Windows : **http://localhost**
 ```bash
 docker compose down
 ```
+(garde les données Postgres ; `docker compose down -v` pour repartir d'une base vierge)
 
 ---
 
@@ -51,5 +53,6 @@ docker compose down
 | Symptôme | Solution rapide |
 |---|---|
 | `port is already allocated` | `docker compose down` puis relancer `docker compose up -d --build` |
-| Page blanche / API en erreur | `docker compose ps` → vérifier que les 2 services sont bien `Up`/`healthy` |
+| Page blanche / API en erreur | `docker compose ps` → vérifier que les 3 services sont bien `Up`/`healthy` |
+| `/api/db-health` renvoie 503 | Postgres pas encore prêt ou pas `healthy` → `docker compose ps postgres` puis `docker compose logs postgres` |
 | Rien ne s'affiche sur `localhost` | Vérifier que Docker Desktop / le moteur Docker de la distro WSL tourne (`docker ps`) |

@@ -1,6 +1,6 @@
 # Backend — API REST Spring Boot (demo-hr)
 
-API REST minimale (Spring Boot 3.2, Java 17). Le backend n'expose aujourd'hui qu'un endpoint de santé — aucune donnée métier, aucune persistance.
+API REST minimale (Spring Boot 3.2, Java 17). Le backend n'expose aucune donnée métier, mais dispose d'une vraie connexion Postgres via Spring Data JPA, utilisée par l'endpoint `/api/db-health` pour prouver que la base est joignable.
 
 ---
 
@@ -12,7 +12,7 @@ API REST minimale (Spring Boot 3.2, Java 17). Le backend n'expose aujourd'hui qu
 | Spring Boot | 3.2.0 |
 | Build | Maven (`com.example:hr-backend`) |
 | Port | 8081 |
-| Stockage | Aucun (pas de base, pas de volume) |
+| Stockage | PostgreSQL 16 via Spring Data JPA (Hikari, `ddl-auto=update`) |
 | Image de base | `eclipse-temurin:17-jre-alpine` |
 
 > Le package Java est `com.example.hr`, l'artifactId Maven `hr-backend` et l'image Docker `hr-backend`.
@@ -63,11 +63,13 @@ docker compose up --build
 |---------|--------|-------------|
 | `GET` | `/api/health-check` | Route interrogée par les probes readiness/liveness du chart Helm. Renvoie `[]` (200). NE PAS supprimer. |
 | `GET` | `/api/health` | État applicatif : `{"status":"UP","app":"demo-hr"}` |
+| `GET` | `/api/db-health` | Écrit puis compte une ligne via JPA (`HealthCheckRepository`) : `{"status":"UP","database":"postgresql","totalChecks":N}` (200), ou `{"status":"DOWN",...}` (503) si Postgres est injoignable. |
 
 ### Exemple cURL
 
 ```bash
 curl http://localhost:8081/api/health
+curl http://localhost:8081/api/db-health
 ```
 
 ---
@@ -76,11 +78,15 @@ curl http://localhost:8081/api/health
 
 ```
 src/main/java/com/example/hr/
-├── HrApplication.java          # Point d'entrée @SpringBootApplication + log de démarrage
-└── HealthController.java       # Endpoints santé : /api/health-check (sonde K8s) + /api/health
+├── HrApplication.java              # Point d'entrée @SpringBootApplication + log de démarrage
+├── HealthController.java           # Endpoints santé : /api/health-check (sonde K8s), /api/health, /api/db-health
+├── model/
+│   └── HealthCheck.java            # Entité JPA minimale utilisée uniquement pour prouver la connectivité Postgres
+└── repository/
+    └── HealthCheckRepository.java  # JpaRepository<HealthCheck, Long>
 
 src/main/resources/
-└── application.properties      # server.port=8081
+└── application.properties      # server.port=8081 + spring.datasource.* / spring.jpa.*
 ```
 
 ---
@@ -117,26 +123,39 @@ mvn test     # tests unitaires
 mvn verify   # compile + tests + package (ce que lance le CI : mvn verify -q)
 ```
 
-`HrApplicationTests` vérifie uniquement que le contexte Spring démarre — aucune dépendance externe requise.
+Ces tests **nécessitent une vraie instance Postgres joignable** (variables `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`, défauts `localhost:5432/hrdb/hruser/hrpass`) :
+- `HrApplicationTests` : le contexte Spring démarre (donc la connexion Postgres s'établit) + un aller-retour JPA réel (`save` + `count` sur `HealthCheckRepository`).
+- `HealthControllerDbHealthTest` : appelle `/api/db-health` sur un serveur réel (`webEnvironment=RANDOM_PORT`) et vérifie `status=UP`.
+
+Localement, démarrer Postgres d'abord (`docker compose up postgres -d` depuis la racine `repo-app/`, ou toute instance Postgres 16 locale) avant `mvn test`/`mvn verify`. En CI, le job `backend-ci` démarre un service container `postgres:16-alpine` avant `mvn verify -q`.
 
 ---
 
 ## Dépendances (pom.xml)
-
-Une seule dépendance applicative :
 
 ```xml
 <dependency>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-web</artifactId>
 </dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <version>42.7.2</version>
+    <scope>runtime</scope>
+</dependency>
 ```
 
-`tomcat.version` est épinglé à `10.1.55` pour corriger des CVE détectées par Trivy lors du scan d'image.
+Le driver PostgreSQL est épinglé à `42.7.2` (corrige CVE-2024-1597). `tomcat.version` est épinglé à `10.1.55` pour corriger des CVE détectées par Trivy lors du scan d'image.
 
 ---
 
 ## Limitations connues (assumées pour la démo)
 
-- **Pas de persistance et pas de logique métier** : le backend n'expose qu'un health check ; l'ancien domaine RH (employés, congés, bulletins de paie, JPA + PostgreSQL) a été retiré.
+- **Pas de logique métier** : la persistance Postgres est branchée (JPA + `/api/db-health`) mais l'ancien domaine RH (employés, congés, bulletins de paie) n'a pas été réintroduit — aucune entité/repository/controller métier n'existe encore.
+- **`spring.jpa.hibernate.ddl-auto=update`** : acceptable pour la démo (une seule table `health_check`, auto-créée) ; à remplacer par des migrations versionnées (Flyway/Liquibase) avant d'y stocker de vraies données métier.
 - **CORS ouvert** : `@CrossOrigin(origins = "*")` acceptable en démo ; en production Nginx proxifie `/api/*` donc les appels sont same-origin.
