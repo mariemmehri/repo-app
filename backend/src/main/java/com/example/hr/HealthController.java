@@ -44,7 +44,7 @@ public class HealthController {
         return Map.of(
                 "status", "UP",
                 "app", "demo-hr",
-                "message", "Backend RH opérationnel"
+                "message", "Backend RH opérationnel — validation pipeline dev"
         );
     }
 
