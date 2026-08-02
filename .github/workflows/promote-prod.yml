@@ -1,9 +1,15 @@
 name: Promote to Production
 
-# Déclenché par un tag de version posé sur un commit de main DÉJÀ buildé
-# par ci.yml. Aucun rebuild ici — l'image existante (tag SHA court) est
-# copiée telle quelle (digest préservé via crane) vers le registre prod,
-# puis values-prod.yaml est patché. Le déploiement réel reste soumis au
+# Déclenché par un tag de version posé sur un commit déjà déployé en
+# staging par ci-backend.yml / ci-frontend.yml. Aucun rebuild ici —
+# les images promues sont celles ACTUELLEMENT référencées dans
+# values-staging.yaml (source de vérité de ce qui tourne en staging),
+# pas "le SHA du commit taggé" : depuis que build/push sont scopés
+# par path (backend/**, frontend/**), un même commit ne garantit plus
+# qu'une image existe pour les DEUX services à son propre SHA — l'un
+# des deux peut dater d'un commit antérieur. Chaque image est copiée
+# telle quelle (digest préservé via crane) vers le registre prod, puis
+# values-prod.yaml est patché. Le déploiement réel reste soumis au
 # sync manuel de l'Application ArgoCD hr-prod.
 on:
   push:
@@ -49,54 +55,6 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
 
-      - name: Resolve source image tag (SHA du commit taggé)
-        id: meta
-        run: |
-          echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          echo "Promoting commit ${GITHUB_SHA::7} as ${GITHUB_REF_NAME}"
-
-      # ── Garde-fou build-once : l'image DOIT déjà exister ───────
-      - name: Verify images exist in source registry (no rebuild)
-        env:
-          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          for IMAGE in ${{ env.BACKEND_IMAGE }} ${{ env.FRONTEND_IMAGE }}; do
-            echo "Checking ${IMAGE}:${IMAGE_TAG}..."
-            gcloud artifacts docker tags list \
-              ${{ env.SRC_REGISTRY }}/${IMAGE} \
-              --filter="tag:${IMAGE_TAG}" \
-              --format="value(tag)" | grep -q "${IMAGE_TAG}" || {
-                echo "::error::Image ${IMAGE}:${IMAGE_TAG} introuvable dans ${{ env.SRC_REGISTRY }}."
-                echo "::error::Le commit taggé ${GITHUB_REF_NAME} n'a jamais été buildé sur main — tag un commit passé par le CI."
-                exit 1
-              }
-            echo "${IMAGE}:${IMAGE_TAG} exists ✔"
-          done
-
-      - name: Install crane
-        run: |
-          curl -sL "https://github.com/google/go-containerregistry/releases/download/${{ env.CRANE_VERSION }}/go-containerregistry_Linux_x86_64.tar.gz" \
-            | tar xz -C /usr/local/bin crane
-          crane version
-
-      # ── Copie vers le registre prod (digest préservé) ──────────
-      - name: Copy images to prod registry
-        env:
-          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          set -euo pipefail
-          for IMAGE in ${{ env.BACKEND_IMAGE }} ${{ env.FRONTEND_IMAGE }}; do
-            echo "Copying ${IMAGE}:${IMAGE_TAG} -> prod as ${VERSION}..."
-            crane copy \
-              ${{ env.SRC_REGISTRY }}/${IMAGE}:${IMAGE_TAG} \
-              ${{ env.PROD_REGISTRY }}/${IMAGE}:${VERSION}
-            echo "${IMAGE} promoted ✔"
-          done
-
-      # ── GitOps : patch values-prod.yaml ────────────────────────
       - name: Install yq
         run: |
           wget -qO /usr/local/bin/yq \
@@ -115,20 +73,91 @@ jobs:
           owner: mariemmehri
           repositories: repo-config
 
-      - name: Update prod image tags in repo-config
+      - name: Clone repo-config
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           CONFIG_REPO: ${{ vars.CONFIG_REPO }}
+        run: |
+          git clone --depth 1 \
+            https://x-access-token:${GH_TOKEN}@github.com/${CONFIG_REPO}.git \
+            config-repo
+
+      # ── Résout les tags à promouvoir depuis ce qui tourne VRAIMENT
+      # en staging, pas depuis le SHA du commit taggé (voir commentaire
+      # en tête de fichier) ──────────────────────────────────────
+      - name: Resolve source image tags from staging values
+        id: src
+        run: |
+          set -euo pipefail
+          BACKEND_TAG=$(yq eval '.backend.image.tag' config-repo/charts/hr-app/values-staging.yaml)
+          FRONTEND_TAG=$(yq eval '.frontend.image.tag' config-repo/charts/hr-app/values-staging.yaml)
+          echo "backend_tag=${BACKEND_TAG}" >> "$GITHUB_OUTPUT"
+          echo "frontend_tag=${FRONTEND_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Promoting ${{ env.BACKEND_IMAGE }}@${BACKEND_TAG} + ${{ env.FRONTEND_IMAGE }}@${FRONTEND_TAG} (from staging) as ${GITHUB_REF_NAME}"
+
+      # ── Garde-fou build-once : chaque image DOIT déjà exister,
+      # chacune à son propre tag ──────────────────────────────────
+      - name: Verify images exist in source registry (no rebuild)
+        env:
+          BACKEND_TAG: ${{ steps.src.outputs.backend_tag }}
+          FRONTEND_TAG: ${{ steps.src.outputs.frontend_tag }}
+        run: |
+          set -euo pipefail
+          check() {
+            local image="$1" tag="$2"
+            echo "Checking ${image}:${tag}..."
+            gcloud artifacts docker tags list \
+              ${{ env.SRC_REGISTRY }}/${image} \
+              --filter="tag:${tag}" \
+              --format="value(tag)" | grep -q "${tag}" || {
+                echo "::error::Image ${image}:${tag} introuvable dans ${{ env.SRC_REGISTRY }}."
+                echo "::error::values-staging.yaml pointe vers un tag jamais buildé/poussé pour ${image} — vérifie le déploiement staging avant de re-tagger."
+                exit 1
+              }
+            echo "${image}:${tag} exists ✔"
+          }
+          check "${{ env.BACKEND_IMAGE }}" "${BACKEND_TAG}"
+          check "${{ env.FRONTEND_IMAGE }}" "${FRONTEND_TAG}"
+
+      - name: Install crane
+        run: |
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${{ env.CRANE_VERSION }}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar xz -C /usr/local/bin crane
+          crane version
+
+      # ── Copie vers le registre prod (digest préservé), chaque
+      # image depuis son propre tag source ──────────────────────
+      - name: Copy images to prod registry
+        env:
+          BACKEND_TAG: ${{ steps.src.outputs.backend_tag }}
+          FRONTEND_TAG: ${{ steps.src.outputs.frontend_tag }}
+          VERSION: ${{ steps.src.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          echo "Copying ${{ env.BACKEND_IMAGE }}:${BACKEND_TAG} -> prod as ${VERSION}..."
+          crane copy \
+            ${{ env.SRC_REGISTRY }}/${{ env.BACKEND_IMAGE }}:${BACKEND_TAG} \
+            ${{ env.PROD_REGISTRY }}/${{ env.BACKEND_IMAGE }}:${VERSION}
+          echo "${{ env.BACKEND_IMAGE }} promoted ✔"
+
+          echo "Copying ${{ env.FRONTEND_IMAGE }}:${FRONTEND_TAG} -> prod as ${VERSION}..."
+          crane copy \
+            ${{ env.SRC_REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${FRONTEND_TAG} \
+            ${{ env.PROD_REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${VERSION}
+          echo "${{ env.FRONTEND_IMAGE }} promoted ✔"
+
+      # ── GitOps : patch values-prod.yaml (réutilise le clone fait
+      # plus haut, inutile de re-cloner) ──────────────────────────
+      - name: Update prod image tags in repo-config
+        env:
           VALUES_FILE: charts/hr-app/values-prod.yaml
-          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION: ${{ steps.src.outputs.version }}
           GIT_USER_EMAIL: "github-actions[bot]@users.noreply.github.com"
           GIT_USER_NAME: "github-actions[bot]"
         run: |
           set -euo pipefail
-
-          git clone --depth 1 \
-            https://x-access-token:${GH_TOKEN}@github.com/${CONFIG_REPO}.git \
-            config-repo
 
           cd config-repo
 
