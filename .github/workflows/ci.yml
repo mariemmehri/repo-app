@@ -27,6 +27,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # paths-filter diffs github.event.before...HEAD locally on push
+          # events; a shallow (default depth=1) clone doesn't contain
+          # `before`, so it silently falls back to "everything changed".
+          fetch-depth: 0
 
       - name: Filter paths
         id: filter
