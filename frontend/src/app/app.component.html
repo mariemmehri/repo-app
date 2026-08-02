@@ -1,6 +1,8 @@
 <!-- ci-test: frontend-only change to validate ci-frontend.yml is the only workflow triggered -->
 <header class="app-header">
   <span class="logo">SoproRH<span class="dot">.</span></span>
+  <span class="env-badge">DEV</span>
+
   <span class="spacer"></span>
   <label style="color:#fff;margin:0 8px 0 0;">Employé&nbsp;:</label>
   <select [ngModel]="selected?.id" (ngModelChange)="selectEmployee($event)">
